@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #14532d;
+  --brand-accent: #10b981;
+  --background: #f6faf7;
+  --foreground: #1d2624;
+  --card: #ffffff;
+  --muted: #f1f5f2;
+  --border: #e3ebe6;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0a1410;
+  --foreground: #e9f2ed;
+  --card: #101f19;
+  --muted: #13251d;
+  --border: #233a2e;
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv11", "ss01";
+  text-rendering: optimizeLegibility;
+  min-height: 100dvh;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--brand-accent) 35%, transparent);
+}
+
+a,
+button,
+input,
+select,
+textarea,
+[tabindex] {
+  outline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 3px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-radius: 99px;
+}
+
+@layer components {
+  .container-eco {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .surface {
+    @apply rounded-3xl border bg-white shadow-card dark:bg-[#101f19];
+    border-color: var(--border);
+  }
+
+  .glass {
+    background: color-mix(in srgb, var(--card) 72%, transparent);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-forest-700 dark:text-emerald-300;
+  }
+
+  .heading-1 {
+    @apply font-display text-4xl font-semibold tracking-[-0.03em] text-ink-900 dark:text-white sm:text-5xl lg:text-6xl;
+  }
+
+  .heading-2 {
+    @apply font-display text-3xl font-semibold tracking-[-0.025em] text-ink-900 dark:text-white sm:text-4xl;
+  }
+
+  .heading-3 {
+    @apply font-display text-xl font-semibold tracking-[-0.015em] text-ink-900 dark:text-white;
+  }
+
+  .muted {
+    @apply text-ink-500 dark:text-ink-300;
+  }
+
+  .field {
+    @apply w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-ink-900 shadow-sm transition placeholder:text-ink-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:bg-[#0d1a14] dark:text-white;
+    border-color: var(--border);
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink-700 dark:text-ink-100;
+  }
+
+  .prose-eco {
+    @apply text-[15px] leading-7 text-ink-600 dark:text-ink-200;
+  }
+  .prose-eco p {
+    @apply my-4 whitespace-pre-line;
+  }
+  .prose-eco h2 {
+    @apply mb-2 mt-8 font-display text-xl font-semibold text-ink-900 dark:text-white;
+  }
+
+  .grid-eco {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--brand-accent) 9%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--brand-accent) 9%, transparent) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-xl bg-ink-100 dark:bg-ink-800;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/50 to-transparent dark:via-white/5;
+  }
+}
+
+.leaflet-container {
+  font-family: inherit;
+  background: #e8f1eb;
+  z-index: 0;
+}
+.dark .leaflet-container {
+  background: #0f1d17;
+}
+.leaflet-control-attribution {
+  font-size: 9px !important;
+}
+.map-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px 999px 999px 4px;
+  transform: rotate(-45deg);
+  border: 2px solid white;
+  box-shadow: 0 3px 12px rgba(10, 30, 20, 0.35);
+}
+.map-pin > span {
+  transform: rotate(45deg);
+  font-size: 11px;
+  font-weight: 800;
+  color: white;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+    color: #111 !important;
+  }
+  .surface {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    break-inside: avoid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
