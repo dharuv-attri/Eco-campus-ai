@@ -63,7 +63,8 @@ export const STATUSES = [
 export type StatusValue =
   | (typeof STATUSES)[number]
   | "rejected"
-  | "reopened";
+  | "reopened"
+  | "archived";
 
 export const STATUS_META: Record<
   StatusValue,
@@ -78,6 +79,7 @@ export const STATUS_META: Record<
   closed: { label: "Closed", description: "Complaint successfully closed", tone: "slate", step: 7 },
   rejected: { label: "Rejected", description: "Complaint could not be accepted — see reason", tone: "rose", step: 0 },
   reopened: { label: "Reopened", description: "Issue reported again after resolution — under review", tone: "orange", step: 1 },
+  archived: { label: "Archived", description: "Report removed from active queues; history is preserved", tone: "slate", step: 0 },
 };
 
 export const LOCATION_CATEGORIES = [
@@ -166,8 +168,11 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
     "EcoCampus AI gives every student and staff member a clear way to report environmental problems, follow real progress, and celebrate verified improvements. Every report is traceable from submission to closure.",
   logo_url: "",
   favicon_url: "",
+  background_image: "",
   primary_color: "#14532D",
   secondary_color: "#10B981",
+  background_color: "#F6FAF7",
+  dark_background_color: "#0A1410",
   contact_email: "info@ltsu.ac.in",
   contact_phone: "01881-270794 / 270693",
   contact_mobile: "+91 8480005390",

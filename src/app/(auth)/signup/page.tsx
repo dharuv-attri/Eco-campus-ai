@@ -3,6 +3,7 @@ import Link from "next/link";
 import { SignupForm } from "@/components/auth/forms";
 import { all } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 export const metadata: Metadata = { title: "Create account" };
 
@@ -11,7 +12,7 @@ export default async function SignupPage() {
   const departments = all<{ id: string; name: string }>(
     "SELECT id, name FROM departments ORDER BY name",
   ).map(({ id, name }) => ({ id, name }));
-  const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const googleEnabled = isSupabaseConfigured();
 
   if (settings.registration_open === "false") {
     return (

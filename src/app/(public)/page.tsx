@@ -35,9 +35,8 @@ import {
   getVerifiedLocationsWithPins,
 } from "@/lib/content";
 import { GREEN_CHALLENGES, SITE } from "@/lib/constants";
-import { getSections, getSettings, isSectionEnabled } from "@/lib/settings";
+import { getSections, getSettings } from "@/lib/settings";
 import { formatNumber, timeAgo, truncate } from "@/lib/utils";
-import { one } from "@/lib/db";
 
 export const metadata: Metadata = {
   title: "Report. Track. Resolve. Build a Greener Campus.",
@@ -78,13 +77,7 @@ export default async function HomePage() {
   const articles = listPublishedArticles(3);
   const announcements = listPublishedAnnouncements(2);
   const recentAnnouncements = announcements;
-  const points = one<{ total: number }>("SELECT COALESCE(SUM(points),0) AS total FROM leaderboard_points");
-  const verifications = one<{ count: number }>(
-    "SELECT COUNT(*) AS count FROM complaints WHERE status IN ('verified','closed')",
-  );
-  const engagement = one<{ count: number }>(
-    "SELECT COUNT(DISTINCT user_id) AS count FROM leaderboard_points",
-  );
+  const contactDisabled = sections.find((section) => section.key === "contact")?.enabled === 0;
 
   const mapCenter = {
     lat: Number(settings.map_center_lat) || SITE.mapCenter.lat,
@@ -137,6 +130,17 @@ export default async function HomePage() {
 
           <div className="relative animate-fade-in">
             <div className="relative overflow-hidden rounded-[2rem] border bg-gradient-to-br from-forest-900 via-forest-800 to-emerald-700 p-7 text-white shadow-soft sm:p-9">
+              {settings.hero_image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={settings.hero_image}
+                  alt=""
+                  aria-hidden
+                  fetchPriority="high"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : null}
+              <div className="absolute inset-0 bg-gradient-to-br from-forest-900/90 via-forest-800/80 to-emerald-700/70" aria-hidden />
               <div className="absolute inset-0 grid-eco opacity-20" aria-hidden />
               <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full border border-white/10" aria-hidden />
               <div className="absolute -bottom-16 -left-10 h-52 w-52 rounded-full border border-white/10" aria-hidden />
@@ -157,7 +161,7 @@ export default async function HomePage() {
                     <p className="mt-1 text-[11px] text-emerald-100/70">Verified resolutions</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-                    <p className="text-3xl font-semibold tracking-tight">{formatNumber(points?.total ?? 0)}</p>
+                    <p className="text-3xl font-semibold tracking-tight">{formatNumber(stats.points)}</p>
                     <p className="mt-1 text-[11px] text-emerald-100/70">Green points earned</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
@@ -187,7 +191,7 @@ export default async function HomePage() {
                 </span>
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Campus community</p>
-                  <p className="text-sm font-semibold">{formatNumber(engagement?.count ?? 0)} active contributors</p>
+                  <p className="text-sm font-semibold">{formatNumber(stats.engagement)} active contributors</p>
                 </div>
               </div>
             </div>
@@ -447,9 +451,9 @@ export default async function HomePage() {
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
               { label: "Environmental reports", value: stats.total, icon: ClipboardCheck },
-              { label: "Verified resolutions", value: verifications?.count ?? 0, icon: BadgeCheck },
-              { label: "Green points awarded", value: points?.total ?? 0, icon: Trophy },
-              { label: "Students contributing", value: engagement?.count ?? 0, icon: Users },
+              { label: "Verified resolutions", value: stats.verifications, icon: BadgeCheck },
+              { label: "Green points awarded", value: stats.points, icon: Trophy },
+              { label: "Students contributing", value: stats.engagement, icon: Users },
             ].map((metric) => (
               <div key={metric.label} className="surface flex items-center gap-4 p-5">
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-forest-700 to-emerald-500 text-white">
@@ -559,7 +563,7 @@ export default async function HomePage() {
   return (
     <>
       {enabledSections.map((section) => rendered[section.key])}
-      {!isSectionEnabled("contact") ? (
+      {contactDisabled ? (
         <section className="container-eco py-16">
           <div className="surface p-8 text-center">
             <p className="text-sm text-ink-500">Contact section is currently disabled by the administrator.</p>

@@ -14,7 +14,7 @@ export default async function StaffTaskDetailPage({ params }: { params: Promise<
   const complaint = getComplaint(id);
   if (!complaint || !canAccessComplaint(user, complaint)) notFound();
 
-  const canManage = canManageComplaint(user, complaint);
+  const canManage = complaint.status !== "archived" && canManageComplaint(user, complaint);
   const isReporter = complaint.reporter_id === user.id;
 
   return (

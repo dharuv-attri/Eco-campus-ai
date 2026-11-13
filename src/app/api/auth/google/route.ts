@@ -1,29 +1,36 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { randomBytes } from "node:crypto";
-import { appBaseUrl } from "@/lib/email";
+import { appBaseUrlForRequest } from "@/lib/email";
+import { createSupabaseClient } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId || !process.env.GOOGLE_CLIENT_SECRET) {
-    return NextResponse.redirect(new URL("/login?error=google-not-configured", req.url));
+  try {
+    const requestedRole = req.nextUrl.searchParams.get("role");
+    if (requestedRole && !["student", "staff", "admin"].includes(requestedRole)) {
+      return NextResponse.redirect(new URL("/login?error=Invalid+portal+selection.", req.url));
+    }
+    const supabase = await createSupabaseClient();
+    const callbackUrl = new URL("/api/auth/google/callback", appBaseUrlForRequest(req.nextUrl));
+    if (requestedRole) callbackUrl.searchParams.set("role", requestedRole);
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: callbackUrl.toString(),
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    if (error) {
+      return NextResponse.redirect(
+        new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url),
+      );
+    }
+    if (!data.url) {
+      return NextResponse.redirect(
+        new URL("/login?error=Supabase+did+not+return+a+Google+sign-in+URL.", req.url),
+      );
+    }
+    return NextResponse.redirect(data.url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Google sign-in is unavailable.";
+    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(message)}`, req.url));
   }
-  const state = randomBytes(24).toString("base64url");
-  const redirectUri = `${appBaseUrl()}/api/auth/google/callback`;
-  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "openid email profile");
-  url.searchParams.set("state", state);
-  url.searchParams.set("prompt", "select_account");
-
-  const response = NextResponse.redirect(url);
-  response.cookies.set("eco_oauth_state", state, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 600,
-  });
-  return response;
 }

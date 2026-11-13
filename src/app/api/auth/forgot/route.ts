@@ -1,13 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { forgotSchema } from "@/lib/validation";
-import { one } from "@/lib/db";
 import { clientIp, rateLimit, sameOrigin } from "@/lib/http";
-import { emailDeliveryConfigured, sendResetEmail } from "@/lib/email";
+import { createSupabaseClient } from "@/lib/supabase";
+import { appBaseUrlForRequest } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
-  const ip = clientIp(req);
-  if (!rateLimit(`forgot:${ip}`, 6, 60 * 60 * 1000).allowed) {
+  if (!rateLimit(`forgot:${clientIp(req)}`, 6, 60 * 60 * 1000).allowed) {
     return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
   }
   let json: unknown;
@@ -20,21 +19,26 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
-  const user = one<{ id: string; email: string; full_name: string; status: string }>(
-    "SELECT id, email, full_name, status FROM users WHERE email = ?",
-    parsed.data.email,
-  );
 
-  let resetLink = "";
-  if (user && user.status !== "suspended") {
-    const result = await sendResetEmail(user.email, user.full_name);
-    if (!emailDeliveryConfigured()) resetLink = result.url;
+  let supabase;
+  try {
+    supabase = await createSupabaseClient();
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Supabase Auth is not configured." },
+      { status: 503 },
+    );
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
+    redirectTo: `${appBaseUrlForRequest(req.nextUrl)}/api/auth/google/callback?next=/reset-password`,
+  });
+  if (error) {
+    return NextResponse.json({ error: error.message || "Supabase could not send a password reset email." }, { status: 502 });
   }
 
   return NextResponse.json({
     ok: true,
-    message:
-      "If an account exists for that email, a password reset link has been created. For privacy, the response is the same either way.",
-    resetUrl: resetLink,
+    message: "If an account exists for that email, a password reset email has been sent.",
   });
 }

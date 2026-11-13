@@ -6,7 +6,7 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 import { EcoBot } from "@/components/ecobot";
 import { getSettings } from "@/lib/settings";
-import { safeColor } from "@/lib/utils";
+import { safeColor, safeImageUrl } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +59,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const settings = getSettings();
   const brand = safeColor(settings.primary_color, "#14532D");
   const accent = safeColor(settings.secondary_color, "#10B981");
+  const background = safeColor(settings.background_color, "#F6FAF7");
+  const darkBackground = safeColor(settings.dark_background_color, "#0A1410");
+  const backgroundImage = safeImageUrl(settings.background_image);
 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <style>{`:root{--brand:${brand};--brand-accent:${accent};}`}</style>
+        <style>
+          {`:root{--brand:${brand};--brand-accent:${accent};--background:${background};--site-background-image:${backgroundImage ? `url("${backgroundImage}")` : "none"};}:root.dark{--background:${darkBackground};}`}
+        </style>
       </head>
       <body className="font-sans antialiased">
         <a

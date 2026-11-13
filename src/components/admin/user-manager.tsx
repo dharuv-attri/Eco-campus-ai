@@ -8,6 +8,7 @@ import {
   Search,
   ShieldCheck,
   ShieldOff,
+  Trash2,
   UserCog,
   UserRoundCheck,
   XCircle,
@@ -23,7 +24,15 @@ import { ROLE_LABEL } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import type { PublicUser, Role } from "@/types";
 
-type UserAction = "approve" | "reject" | "suspend" | "reactivate" | "role" | "department" | "reset_password";
+type UserAction =
+  | "approve"
+  | "reject"
+  | "suspend"
+  | "reactivate"
+  | "remove"
+  | "role"
+  | "department"
+  | "reset_password";
 
 export function UserManager({
   users,
@@ -44,7 +53,6 @@ export function UserManager({
   const [action, setAction] = useState<UserAction>("approve");
   const [role, setRole] = useState<Role>("student");
   const [departmentId, setDepartmentId] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
   const isSuper = actorRole === "super_admin";
@@ -66,7 +74,6 @@ export function UserManager({
     setAction(nextAction);
     setRole(user.role);
     setDepartmentId(user.department_id ?? "");
-    setNewPassword("");
   }
 
   async function submit(event: React.FormEvent) {
@@ -77,9 +84,12 @@ export function UserManager({
       const payload: Record<string, string | null> = { action };
       if (action === "role") payload.role = role;
       if (action === "department") payload.departmentId = departmentId || null;
-      if (action === "reset_password") payload.newPassword = newPassword;
       await postJson(`/api/admin/users/${selected.id}`, payload);
-      toast.success("User account updated.");
+      toast.success(
+        action === "reset_password"
+          ? "Password reset email sent."
+          : "User account updated.",
+      );
       setSelected(null);
       router.refresh();
     } catch (error) {
@@ -201,15 +211,32 @@ export function UserManager({
                         Department
                       </Button>
                     ) : null}
-                    {isSuper ? (
+                    {isSuper || !protectedAdmin ? (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => open(user, "role")} disabled={protectedAdmin}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => open(user, "role")}
+                          disabled={user.id === actorId}
+                        >
                           <ShieldCheck className="h-3.5 w-3.5" /> Role
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => open(user, "reset_password")} disabled={protectedAdmin}>
-                          <KeyRound className="h-3.5 w-3.5" /> Password
-                        </Button>
+                        {isSuper ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => open(user, "reset_password")}
+                            disabled={user.id === actorId}
+                          >
+                            <KeyRound className="h-3.5 w-3.5" /> Reset link
+                          </Button>
+                        ) : null}
                       </>
+                    ) : null}
+                    {user.id !== actorId && (isSuper || !protectedAdmin) && user.status !== "deleted" ? (
+                      <Button size="sm" variant="danger" onClick={() => open(user, "remove")}>
+                        <Trash2 className="h-3.5 w-3.5" /> Remove
+                      </Button>
                     ) : null}
                   </div>
                 </li>
@@ -234,15 +261,17 @@ export function UserManager({
             <div>
               <Label htmlFor="user-role">New role</Label>
               <Select id="user-role" value={role} onChange={(event) => setRole(event.target.value as Role)}>
-                {Object.entries(ROLE_LABEL).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
+                {Object.entries(ROLE_LABEL)
+                  .filter(([value]) => isSuper || value === "student" || value === "staff")
+                  .map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
               </Select>
               <p className="mt-1 text-[11px] leading-5 text-ink-400">
-                Changing a role signs the user out of existing sessions. Administrator roles should be granted
-                sparingly and reviewed regularly.
+                Access checks use the updated role on the next request. Only super administrators can grant
+                administrator roles.
               </p>
             </div>
           ) : null}
@@ -266,21 +295,9 @@ export function UserManager({
           ) : null}
 
           {action === "reset_password" ? (
-            <div>
-              <Label htmlFor="user-password">New temporary password</Label>
-              <Input
-                id="user-password"
-                type="password"
-                required
-                minLength={8}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                autoComplete="new-password"
-              />
-              <p className="mt-1 text-[11px] leading-5 text-ink-400">
-                Share it securely. The user will be signed out of all current sessions.
-              </p>
-            </div>
+            <p className="rounded-xl bg-ink-50 p-3 text-xs leading-5 text-ink-500 dark:bg-white/5 dark:text-ink-300">
+              Supabase will email this user a secure, time-limited password reset link.
+            </p>
           ) : null}
 
           {["approve", "reject", "suspend", "reactivate"].includes(action) ? (
@@ -295,6 +312,13 @@ export function UserManager({
             </p>
           ) : null}
 
+          {action === "remove" ? (
+            <p className="rounded-xl bg-rose-500/10 p-3 text-xs leading-5 text-rose-700 dark:text-rose-300">
+              This prevents the account from signing in but preserves its records. An administrator can
+              reactivate it later.
+            </p>
+          ) : null}
+
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setSelected(null)}>
               Cancel
@@ -302,7 +326,7 @@ export function UserManager({
             <Button
               type="submit"
               loading={saving}
-              variant={action === "reject" || action === "suspend" ? "danger" : "primary"}
+              variant={action === "reject" || action === "suspend" || action === "remove" ? "danger" : "primary"}
             >
               Confirm {actionTitle(action).toLowerCase()}
             </Button>
@@ -319,9 +343,10 @@ function actionTitle(action: UserAction) {
     reject: "Reject account",
     suspend: "Suspend account",
     reactivate: "Reactivate account",
+    remove: "Remove account",
     role: "Change role",
     department: "Assign department",
-    reset_password: "Reset password",
+    reset_password: "Send password reset link",
   };
   return labels[action];
 }

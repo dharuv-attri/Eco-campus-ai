@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { one } from "@/lib/db";
 import { clientIp, rateLimit, sameOrigin } from "@/lib/http";
-import { emailDeliveryConfigured, sendOtpEmail } from "@/lib/email";
 import { forgotSchema } from "@/lib/validation";
+import { createSupabaseClient } from "@/lib/supabase";
+import { appBaseUrlForRequest } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
@@ -18,27 +19,42 @@ export async function POST(req: NextRequest) {
   const parsed = forgotSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
 
-  const user = one<{ id: string; email: string; full_name: string; email_verified: number; status: string }>(
-    "SELECT id, email, full_name, email_verified, status FROM users WHERE email = ?",
+  let supabase;
+  try {
+    supabase = await createSupabaseClient();
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Supabase Auth is not configured." },
+      { status: 503 },
+    );
+  }
+
+  const profile = one<{ email_verified: number; status: string; is_demo: number }>(
+    "SELECT email_verified, status, is_demo FROM users WHERE lower(email) = ?",
     parsed.data.email,
   );
-
-  let verificationUrl = "";
-  let devCode = "";
-  if (user && user.email_verified === 0 && user.status !== "suspended") {
-    const result = await sendOtpEmail(user.email, "verify");
-    if (result) {
-      if (!emailDeliveryConfigured()) {
-        verificationUrl = result.url;
-        devCode = result.code;
-      }
-    }
+  if (
+    !profile ||
+    profile.is_demo === 1 ||
+    profile.email_verified ||
+    ["suspended", "deleted"].includes(profile.status)
+  ) {
+    return NextResponse.json({
+      ok: true,
+      message: "If a matching unverified account exists, a new verification code has been sent.",
+    });
+  }
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: parsed.data.email,
+    options: { emailRedirectTo: `${appBaseUrlForRequest(req.nextUrl)}/api/auth/google/callback?next=/login` },
+  });
+  if (error) {
+    return NextResponse.json({ error: error.message || "Supabase could not resend the verification code." }, { status: 502 });
   }
 
   return NextResponse.json({
     ok: true,
-    message: "If a matching unverified account exists, a new verification code has been sent. Check your inbox.",
-    verificationUrl,
-    devCode,
+    message: "If a matching unverified account exists, a new verification code has been sent.",
   });
 }

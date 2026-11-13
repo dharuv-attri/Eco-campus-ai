@@ -19,7 +19,7 @@ import { Label, Textarea, FieldHint } from "@/components/ui/form";
 import { postJson } from "@/lib/client-api";
 import { cn } from "@/lib/utils";
 
-type StaffAction = "start" | "progress" | "resolve" | "request_info" | "note";
+type StaffAction = "start" | "progress" | "resolve" | "request_info" | "note" | "archive";
 
 const actionMeta: Record<StaffAction, { label: string; description: string; icon: typeof PlayCircle }> = {
   start: {
@@ -47,6 +47,11 @@ const actionMeta: Record<StaffAction, { label: string; description: string; icon
     description: "Record an internal update without changing the report status.",
     icon: Send,
   },
+  archive: {
+    label: "Archive report",
+    description: "Remove this report from active queues and public maps while preserving its full history. An administrator can restore it.",
+    icon: Trash2,
+  },
 };
 
 export function StaffActions({
@@ -67,6 +72,7 @@ export function StaffActions({
   const [saving, setSaving] = useState(false);
 
   const available = (Object.keys(actionMeta) as StaffAction[]).filter((key) => {
+    if (key === "archive") return status !== "archived";
     if (key === "start" || key === "progress" || key === "resolve") return isOpen;
     return true;
   });
@@ -99,6 +105,12 @@ export function StaffActions({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (
+      action === "archive" &&
+      !window.confirm("Archive this report? Its history will be preserved and an administrator can restore it.")
+    ) {
+      return;
+    }
     setSaving(true);
     try {
       const response = await postJson<{ message?: string }>(`/api/staff/complaints/${complaintId}/action`, {
@@ -111,8 +123,12 @@ export function StaffActions({
       setMessage("");
       setResolutionNotes("");
       setImages([]);
-      setAction(isOpen && action === "start" ? "progress" : "note");
-      router.refresh();
+      if (action === "archive") {
+        router.push("/staff/tasks");
+      } else {
+        setAction(isOpen && action === "start" ? "progress" : "note");
+        router.refresh();
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not record the update.");
     } finally {
@@ -181,12 +197,18 @@ export function StaffActions({
 
         <div>
           <Label htmlFor="staff-message">
-            {action === "resolve" ? "Short update (optional)" : action === "start" ? "Note (optional)" : "Message"}
+            {action === "resolve"
+              ? "Short update (optional)"
+              : action === "start"
+                ? "Note (optional)"
+                : action === "archive"
+                  ? "Reason for archiving"
+                  : "Message"}
           </Label>
           <Textarea
             id="staff-message"
             required={action !== "start" && action !== "resolve"}
-            minLength={action === "start" || action === "resolve" ? undefined : 3}
+            minLength={action === "archive" ? 10 : action === "start" || action === "resolve" ? undefined : 3}
             maxLength={1500}
             value={message}
             onChange={(event) => setMessage(event.target.value)}
@@ -195,6 +217,8 @@ export function StaffActions({
                 ? "What information do you need from the administrator?"
                 : action === "note"
                   ? "Internal note for administrators and the report record."
+                  : action === "archive"
+                    ? "Explain why this report is being archived."
                   : "What has been done so far?"
             }
           />
@@ -246,7 +270,7 @@ export function StaffActions({
           <p className="text-[10px] text-ink-400">
             Recorded by you · {images.length ? `${images.length} photo(s) attached` : "no photos attached"}
           </p>
-          <Button type="submit" loading={saving} disabled={uploading}>
+          <Button type="submit" loading={saving} disabled={uploading} variant={action === "archive" ? "danger" : "primary"}>
             <Send className="h-4 w-4" /> Save update
           </Button>
         </div>

@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { LoginForm } from "@/components/auth/forms";
-import { one } from "@/lib/db";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import type { LoginRole } from "@/types";
 
 export const metadata: Metadata = { title: "Sign in" };
 
 const errorMessages: Record<string, string> = {
-  "google-not-configured":
-    "Google sign-in is not configured in this environment. Use email sign-in or add Google OAuth credentials.",
-  "google-cancelled": "Google sign-in was cancelled.",
+  "auth-not-configured":
+    "Supabase Auth is not configured. Add the project URL and publishable key (or legacy anon key) to .env.local, then restart the app.",
 };
 
 export default async function LoginPage({
@@ -18,18 +18,24 @@ export default async function LoginPage({
   const params = await searchParams;
   const next = typeof params.next === "string" ? params.next : undefined;
   const errorKey = typeof params.error === "string" ? params.error : "";
-  const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-  const demo = one<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE is_demo = 1");
-  const showDemo =
-    (process.env.NODE_ENV !== "production" || process.env.SHOW_DEMO_CREDENTIALS === "true") &&
-    (demo?.count ?? 0) > 0;
+  const roleParam = typeof params.role === "string" ? params.role : "";
+  const initialRole: LoginRole | undefined = ["student", "staff", "admin"].includes(roleParam)
+    ? (roleParam as LoginRole)
+    : undefined;
+  const authConfigured = isSupabaseConfigured();
 
   return (
     <LoginForm
-      googleEnabled={googleEnabled}
+      googleEnabled={authConfigured}
       nextPath={next}
-      initialError={errorKey ? errorMessages[errorKey] || decodeURIComponent(errorKey) : undefined}
-      showDemo={showDemo}
+      initialRole={initialRole}
+      initialError={
+        errorKey
+          ? errorMessages[errorKey] || errorKey
+          : authConfigured
+            ? undefined
+            : "Supabase Auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to .env.local."
+      }
     />
   );
 }

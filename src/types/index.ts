@@ -1,6 +1,7 @@
 import type { StatusValue } from "@/lib/constants";
 
 export type Role = "student" | "staff" | "admin" | "super_admin";
+export type LoginRole = "student" | "staff" | "admin";
 
 export interface SessionUser {
   id: string;

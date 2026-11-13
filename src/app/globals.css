@@ -37,6 +37,20 @@ body {
   font-feature-settings: "cv11", "ss01";
   text-rendering: optimizeLegibility;
   min-height: 100dvh;
+  position: relative;
+  isolation: isolate;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--site-background-image, none);
+  background-position: center;
+  background-size: cover;
+  opacity: 0.14;
 }
 
 ::selection {
@@ -75,7 +89,7 @@ textarea,
   }
 
   .surface {
-    @apply rounded-3xl border bg-white shadow-card dark:bg-[#101f19];
+      @apply rounded-3xl border bg-[var(--card)] shadow-card;
     border-color: var(--border);
   }
 
@@ -176,6 +190,9 @@ textarea,
   body {
     background: white !important;
     color: #111 !important;
+  }
+  body::before {
+    display: none !important;
   }
   .surface {
     box-shadow: none !important;

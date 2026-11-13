@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from "@/lib/constants";
 import { setSetting } from "@/lib/settings";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { logAudit } from "@/lib/audit";
-import { sanitizeText } from "@/lib/utils";
+import { safeImageUrl, sanitizeText } from "@/lib/utils";
 
 export async function POST(req: NextRequest) {
   const originError = enforceSameOrigin(req);
@@ -29,6 +29,11 @@ export async function POST(req: NextRequest) {
     let value = sanitizeText(rawValue);
     if (key.endsWith("_color") && value && !/^#[0-9a-fA-F]{6}$/.test(value)) {
       return apiError(`${key} must be a hex colour such as #14532D.`);
+    }
+    if (["hero_image", "background_image", "logo_url", "favicon_url"].includes(key) && value) {
+      const imageUrl = safeImageUrl(value);
+      if (!imageUrl) return apiError(`${key} must be an uploaded image or a valid https URL.`);
+      value = imageUrl;
     }
     if (key === "social_instagram" || key === "social_linkedin" || key === "social_youtube") {
       if (value && !/^https:\/\//i.test(value)) return apiError("Social links must start with https://");

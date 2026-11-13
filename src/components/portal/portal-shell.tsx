@@ -98,16 +98,23 @@ export function PortalShell({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
 
   useEffect(() => setOpen(false), [pathname]);
 
   async function logout() {
+    setLogoutError("");
     setLoggingOut(true);
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } finally {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Sign-out failed. Please try again.");
       router.push("/");
       router.refresh();
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : "Sign-out failed. Please try again.");
+    } finally {
+      setLoggingOut(false);
     }
   }
 
@@ -181,6 +188,11 @@ export function PortalShell({
               <LogOut className="h-4 w-4" />
             </button>
           </div>
+          {logoutError ? (
+            <p role="alert" className="mt-2 px-2 text-[10px] leading-4 text-rose-300">
+              {logoutError}
+            </p>
+          ) : null}
           <Link
             href="/"
             className="mt-2 flex items-center justify-center gap-1.5 rounded-lg py-2 text-[10px] font-semibold text-emerald-200/60 transition hover:text-white"
@@ -236,10 +248,16 @@ export function PortalShell({
             <button
               type="button"
               onClick={logout}
-              className="m-3 flex items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-xs font-semibold text-white"
+              disabled={loggingOut}
+              className="m-3 flex items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-xs font-semibold text-white disabled:opacity-50"
             >
-              <LogOut className="h-4 w-4" /> Sign out
+              <LogOut className="h-4 w-4" /> {loggingOut ? "Signing out…" : "Sign out"}
             </button>
+            {logoutError ? (
+              <p role="alert" className="px-4 pb-3 text-center text-xs text-rose-300">
+                {logoutError}
+              </p>
+            ) : null}
           </aside>
         </div>
       ) : null}

@@ -25,8 +25,9 @@ Verified from ltsu.ac.in on 12 Nov 2026:
 
 - Next.js 15 (App Router) + React 19 + TypeScript
 - Tailwind CSS 3.4, custom component system inspired by shadcn/ui
-- SQLite (Node built-in `node:sqlite`) for a zero-config, fully working local deployment; a complete Supabase/PostgreSQL migration reference is supplied for production
-- Session-cookie authentication, bcrypt password hashing, server-side RBAC, CSRF-origin checks, rate limiting, validated uploads
+- SQLite (Node built-in `node:sqlite`) for application data and user profiles
+- Supabase Auth for email/password, email OTP, Google OAuth, and cookie-backed sessions; server-side RBAC reads roles from the SQLite user profile
+- CSRF-origin checks, rate limiting, validated uploads
 - Leaflet + OpenStreetMap maps
 - Recharts analytics
 - Secure server-side AI route with OpenAI-compatible provider support; safe local fallback assistant when no key is configured
@@ -46,9 +47,9 @@ Verified from ltsu.ac.in on 12 Nov 2026:
 ## 4. Security model
 
 - Roles: `student`, `staff`, `admin`, `super_admin`; staff registration requires approval; admin roles can only be granted by a super admin.
-- All private layouts and API routes authorise against the database session, never client-supplied roles.
+- All private layouts and API routes validate the Supabase session server-side, then authorise against the stored user profile; client-supplied roles and Supabase user metadata are never trusted.
 - Students: own complaints only. Staff: assigned complaints or complaints assigned to their department, read/update only. Admins: platform management. Super admins: role management.
-- Session tokens are random, stored hashed, HttpOnly/SameSite=Lax (Secure in production), expiring.
+- Supabase SSR manages HttpOnly session cookies and middleware refresh; logout revokes the current Supabase session.
 - Mutating APIs enforce same-origin, JSON/body validation (Zod), sanitised text, rate limits.
 - Uploads: max 5 MB, image MIME + magic-byte checks, random filenames, served through an authenticated-aware API route; no executable content.
 - AI keys stay server-side; chatbot cannot read other users' records and never asserts a report exists unless the DB query confirms it.
@@ -56,12 +57,13 @@ Verified from ltsu.ac.in on 12 Nov 2026:
 
 ## 5. Environment variables
 
-See `.env.example` and `README.md`. The application runs fully with **no external credentials** (local database, local assistant, email outbox). Google OAuth, an LLM provider, and email delivery activate when their variables are supplied.
+Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or the legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY`) in `.env.local` for authentication. Enable Google under Supabase Auth providers and allow the app callback URL in Supabase Auth URL Configuration; include the local port in use (for example, `http://localhost:3001/**`). Use a Supabase email template containing `{{ .Token }}` for numeric OTP verification. Any valid email address may register; Staff access requires approval, and Admin roles can only be assigned by an existing super administrator. Existing SQLite profiles keep their roles, but existing accounts must also exist in Supabase Auth with the same verified email. AI and non-auth email integrations remain optional.
 
 ## 6. Verification checklist
 
 - `npm run build` passes with type checking.
-- Seeded demo accounts sign in; role redirects work; unauthorised routes redirect.
+- Email/password signup and login, signup OTP verification/resend, Google sign-in, and logout work with the configured Supabase project.
+- Existing accounts are provisioned in Supabase Auth with their profile email; Student, Staff, and Admin routes enforce stored roles and redirect unauthorised users.
 - Student can report with photos, see timeline, receive notifications, give feedback, request reopen.
 - Staff can update only assigned/department complaints.
 - Admin can assign, change status, reject, verify, manage roles, edit CMS, export CSV/PDF, view audit log.

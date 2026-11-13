@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { getDb, one, run, all } from "../src/lib/db";
 import {
@@ -68,47 +67,25 @@ async function seed() {
     );
   }
 
-  const adminEmail = (process.env.SEED_ADMIN_EMAIL || "admin@ecocampus.local").toLowerCase();
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || "EcoAdmin#2026";
-  const adminName = process.env.SEED_ADMIN_NAME || "Platform Administrator";
-
   const users = [
     {
-      id: "usr-super-admin",
-      email: adminEmail,
-      password: adminPassword,
-      name: adminName,
-      role: "super_admin",
-      status: "active",
-      department: "Campus Administration",
-      departmentId: null as string | null,
-      studentId: null,
-      course: null,
-      year: null,
-      employeeId: "EMP-ADMIN-001",
-      designation: "EcoCampus Platform Administrator",
-      isDemo: 0,
-    },
-    {
       id: "usr-demo-admin",
-      email: "eco.admin@ecocampus.local",
-      password: "EcoAdmin#2026",
-      name: "Dr. Meera Sharma",
-      role: "admin",
+      email: "demo.reporter@ecocampus.local",
+      name: "Campus Demo Account",
+      role: "student",
       status: "active",
-      department: "Campus Administration",
+      department: "Campus Demo Data",
       departmentId: null,
       studentId: null,
       course: null,
       year: null,
-      employeeId: "EMP-ADMIN-002",
-      designation: "Sustainability Coordinator (demo)",
+      employeeId: null,
+      designation: null,
       isDemo: 1,
     },
     {
       id: "usr-demo-staff",
       email: "staff@ecocampus.local",
-      password: "EcoStaff#2026",
       name: "Arjun Singh",
       role: "staff",
       status: "active",
@@ -124,7 +101,6 @@ async function seed() {
     {
       id: "usr-demo-staff-2",
       email: "housekeeping@ecocampus.local",
-      password: "EcoStaff#2026",
       name: "Simran Kaur",
       role: "staff",
       status: "active",
@@ -140,7 +116,6 @@ async function seed() {
     {
       id: "usr-demo-student",
       email: "student@ecocampus.local",
-      password: "EcoStudent#2026",
       name: "Riya Verma",
       role: "student",
       status: "active",
@@ -156,7 +131,6 @@ async function seed() {
     {
       id: "usr-demo-student-2",
       email: "aman.student@ecocampus.local",
-      password: "EcoStudent#2026",
       name: "Aman Kumar",
       role: "student",
       status: "active",
@@ -172,7 +146,6 @@ async function seed() {
     {
       id: "usr-demo-student-3",
       email: "nisha.student@ecocampus.local",
-      password: "EcoStudent#2026",
       name: "Nisha Rani",
       role: "student",
       status: "active",
@@ -188,7 +161,6 @@ async function seed() {
     {
       id: "usr-demo-pending-staff",
       email: "pending.staff@ecocampus.local",
-      password: "EcoStaff#2026",
       name: "Vikram Chauhan",
       role: "staff",
       status: "pending",
@@ -206,14 +178,12 @@ async function seed() {
   for (const user of users) {
     const existing = one<{ id: string }>("SELECT id FROM users WHERE email = ?", user.email);
     if (existing) continue;
-    const hash = await bcrypt.hash(user.password, 12);
     run(
       `INSERT INTO users (id, email, password_hash, role, full_name, student_id, course, department,
         department_id, year_semester, employee_id, designation, email_verified, status, provider, is_demo, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'email', ?, ?, ?)`,
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'email', ?, ?, ?)`,
       user.id,
       user.email,
-      hash,
       user.role,
       user.name,
       user.studentId,
@@ -269,7 +239,7 @@ async function seed() {
       loc.lng,
       loc.verified,
       loc.slug,
-      "usr-super-admin",
+      "usr-demo-admin",
       daysAgo(90),
       iso,
     );
@@ -738,7 +708,7 @@ async function seed() {
   for (const a of announcements) {
     run(
       `INSERT OR IGNORE INTO announcements (id, title, slug, excerpt, content, category, published, is_demo, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'usr-super-admin', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'usr-demo-admin', ?, ?)`,
       a.id,
       a.title,
       a.slug,
@@ -780,12 +750,7 @@ async function seed() {
   );
 
   console.log("Seed complete.");
-  console.log(`Demo accounts:
-  Super admin: ${adminEmail} / ${adminPassword}
-  Admin:       eco.admin@ecocampus.local / EcoAdmin#2026
-  Staff:       staff@ecocampus.local / EcoStaff#2026
-  Student:     student@ecocampus.local / EcoStudent#2026
-  Pending staff (cannot sign in): pending.staff@ecocampus.local / EcoStaff#2026`);
+  console.log("Seeded demo profiles are not authentication accounts. Create the first Admin through /admin-setup.");
   db.close();
 }
 

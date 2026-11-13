@@ -220,6 +220,68 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
       break;
     }
+    case "restore": {
+      if (complaint.status !== "archived") return apiError("Only archived reports can be restored.");
+      const archivedFrom = one<{ from_status: string | null }>(
+        "SELECT from_status FROM complaint_status_history WHERE complaint_id = ? AND to_status = 'archived' ORDER BY created_at DESC LIMIT 1",
+        id,
+      )?.from_status;
+      const restorableStatuses = [
+        "submitted",
+        "under_review",
+        "assigned",
+        "in_progress",
+        "resolved",
+        "verified",
+        "closed",
+        "rejected",
+        "reopened",
+      ];
+      const restoredStatus =
+        archivedFrom && restorableStatuses.includes(archivedFrom) ? archivedFrom : "under_review";
+      transitionComplaint({
+        complaint,
+        toStatus: restoredStatus,
+        actor: user,
+        note: note || "Report restored from the archive.",
+        notify: {
+          title: "Report restored",
+          message: `${complaint.complaint_code} was restored to ${restoredStatus.replaceAll("_", " ")}.`,
+        },
+      });
+      break;
+    }
+    case "restore": {
+      if (complaint.status !== "archived") return apiError("Only archived reports can be restored.");
+      const archivedFrom = one<{ from_status: string | null }>(
+        "SELECT from_status FROM complaint_status_history WHERE complaint_id = ? AND to_status = 'archived' ORDER BY created_at DESC LIMIT 1",
+        id,
+      )?.from_status;
+      const restorableStatuses = [
+        "submitted",
+        "under_review",
+        "assigned",
+        "in_progress",
+        "resolved",
+        "verified",
+        "closed",
+        "rejected",
+        "reopened",
+      ];
+      const restoredStatus =
+        archivedFrom && restorableStatuses.includes(archivedFrom) ? archivedFrom : "under_review";
+      transitionComplaint({
+        complaint,
+        toStatus: restoredStatus,
+        actor: user,
+        note: note || "Report restored from the archive.",
+        notify: {
+          title: "Report restored",
+          message: `${complaint.complaint_code} was restored to ${restoredStatus.replaceAll("_", " ")}.`,
+        },
+      });
+      break;
+    }
     case "delete_demo": {
       if (!complaint.is_demo) return apiError("Only demo records can be deleted.", 403);
       run("DELETE FROM complaints WHERE id = ? AND is_demo = 1", id);

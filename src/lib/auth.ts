@@ -1,15 +1,12 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cache } from "react";
 import { redirect } from "next/navigation";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import bcrypt from "bcryptjs";
+import { cookies } from "next/headers";
 import { one, run } from "@/lib/db";
 import { ROLE_HOME } from "@/lib/constants";
+import { createSupabaseClient } from "@/lib/supabase";
 import { nowIso } from "@/lib/utils";
-import type { Role, SessionUser } from "@/types";
-
-export const SESSION_COOKIE = "eco_session";
-const SESSION_DAYS = 30;
+import type { LoginRole, Role, SessionUser } from "@/types";
 
 interface DbUserRow {
   id: string;
@@ -18,6 +15,7 @@ interface DbUserRow {
   role: Role;
   status: string;
   email_verified: number;
+  is_demo: number;
   profile_image: string | null;
   student_id: string | null;
   employee_id: string | null;
@@ -27,19 +25,6 @@ interface DbUserRow {
   year_semester: string | null;
   designation: string | null;
   created_at: string;
-}
-
-function hashToken(token: string) {
-  return createHash("sha256").update(token).digest("hex");
-}
-
-export async function hashPassword(password: string) {
-  return bcrypt.hash(password, 12);
-}
-
-export async function verifyPassword(password: string, hash: string | null) {
-  if (!hash) return false;
-  return bcrypt.compare(password, hash);
 }
 
 export function toSessionUser(row: DbUserRow): SessionUser {
@@ -62,69 +47,44 @@ export function toSessionUser(row: DbUserRow): SessionUser {
   };
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
-  const store = await cookies();
-  const raw = store.get(SESSION_COOKIE)?.value;
-  if (!raw) return null;
-  const tokenHash = hashToken(raw);
-  const row = one<DbUserRow & { expires_at: string }>(
-    `SELECT u.*, s.expires_at
-     FROM sessions s JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = ?`,
-    tokenHash,
-  );
-  if (!row) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) {
-    run("DELETE FROM sessions WHERE token_hash = ?", tokenHash);
+export const getSessionUser = cache(async function getSessionUser(): Promise<SessionUser | null> {
+  const cookieStore = await cookies();
+  const hasSessionCookie = cookieStore
+    .getAll()
+    .some(({ name }) => /^sb-.+-auth-token(?:\.\d+)?$/.test(name));
+  if (!hasSessionCookie) return null;
+
+  const supabase = await createSupabaseClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error) {
+    if (error.name === "AuthSessionMissingError") return null;
+    console.error("Could not validate the Supabase session:", error.message);
     return null;
   }
-  if (row.status === "suspended" || row.status === "deleted") return null;
-  if (row.status === "pending") return null;
-  return toSessionUser(row);
-}
 
-export async function createSession(
-  userId: string,
-  meta?: { ip?: string; userAgent?: string },
-) {
-  const raw = randomBytes(32).toString("base64url");
-  const tokenHash = hashToken(raw);
-  const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  run(
-    `INSERT INTO sessions (id, user_id, token_hash, expires_at, ip, user_agent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    randomUUID(),
-    userId,
-    tokenHash,
-    expires.toISOString(),
-    meta?.ip ?? null,
-    meta?.userAgent?.slice(0, 300) ?? null,
-    nowIso(),
+  const email = data.user?.email?.trim().toLowerCase();
+  if (!email || !data.user?.email_confirmed_at) return null;
+
+  const row = one<DbUserRow>(
+    "SELECT * FROM users WHERE lower(email) = ?",
+    email,
   );
-  const store = await cookies();
-  store.set(SESSION_COOKIE, raw, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
-  });
-  return raw;
-}
+  if (!row || row.is_demo === 1 || ["suspended", "deleted", "pending"].includes(row.status)) return null;
+
+  if (row.email_verified !== 1) {
+    run("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?", nowIso(), row.id);
+    row.email_verified = 1;
+  }
+  return toSessionUser(row);
+});
 
 export async function destroySession() {
-  const store = await cookies();
-  const raw = store.get(SESSION_COOKIE)?.value;
-  if (raw) {
-    run("DELETE FROM sessions WHERE token_hash = ?", hashToken(raw));
-  }
-  store.set(SESSION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-  });
+  const supabase = await createSupabaseClient();
+  const { data, error } = await supabase.auth.getSession();
+  if (error && error.name !== "AuthSessionMissingError") return { error };
+  if (!data.session) return { error: null };
+  const result = await supabase.auth.signOut({ scope: "local" });
+  return result.error?.name === "AuthSessionMissingError" ? { error: null } : result;
 }
 
 export async function requireRole(roles: Role[], nextPath = "/") {
@@ -146,6 +106,11 @@ export async function requireUser(nextPath = "/") {
 
 export function isAdmin(user: SessionUser | null) {
   return user?.role === "admin" || user?.role === "super_admin";
+}
+
+export function matchesLoginRole(actual: Role, requested?: LoginRole) {
+  if (!requested) return true;
+  return requested === "admin" ? actual === "admin" || actual === "super_admin" : actual === requested;
 }
 
 export function isSuperAdmin(user: SessionUser | null) {

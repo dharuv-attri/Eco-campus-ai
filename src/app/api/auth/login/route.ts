@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { loginSchema } from "@/lib/validation";
 import { one, run } from "@/lib/db";
-import { createSession, verifyPassword } from "@/lib/auth";
 import { clientIp, rateLimit, sameOrigin } from "@/lib/http";
 import { ROLE_HOME } from "@/lib/constants";
 import { nowIso } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
-
-const DUMMY_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEeO7Uk7h5F5J0mXQ0jM5qZQ0jM5qZQ0jM5";
+import { createSupabaseClient } from "@/lib/supabase";
+import { matchesLoginRole } from "@/lib/auth";
+import type { Role } from "@/types";
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
@@ -26,69 +26,90 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "Check your details." }, { status: 400 });
   }
-  const { email, password } = parsed.data;
+  const { email, password, role } = parsed.data;
   if (!rateLimit(`login-email:${email}`, 8, 15 * 60 * 1000).allowed) {
     return NextResponse.json({ error: "Too many attempts for this account. Please wait." }, { status: 429 });
+  }
+
+  let supabase;
+  try {
+    supabase = await createSupabaseClient();
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Supabase Auth is not configured." },
+      { status: 503 },
+    );
+  }
+
+  const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+  if (authError || !data.user?.email) {
+    const needsVerification = authError?.code === "email_not_confirmed";
+    return NextResponse.json(
+      {
+        error: needsVerification
+          ? "Please verify your email before signing in. Enter the verification code sent to your inbox."
+          : authError?.message || "Supabase could not sign you in.",
+        needsVerification,
+      },
+      { status: needsVerification ? 403 : 401 },
+    );
   }
 
   const user = one<{
     id: string;
     email: string;
     full_name: string;
-    password_hash: string | null;
-    role: string;
+    role: Role;
     status: string;
-    email_verified: number;
-    locked_until: string | null;
-    failed_attempts: number;
+    is_demo: number;
   }>(
-    "SELECT id, email, full_name, password_hash, role, status, email_verified, locked_until, failed_attempts FROM users WHERE email = ?",
-    email,
+    "SELECT id, email, full_name, role, status, is_demo FROM users WHERE lower(email) = ?",
+    data.user.email.toLowerCase(),
   );
-
-  const passwordOk = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
-  if (!user || !passwordOk) {
-    if (user) {
-      run(
-        "UPDATE users SET failed_attempts = failed_attempts + 1, updated_at = ? WHERE id = ?",
-        nowIso(),
-        user.id,
-      );
-    }
-    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
-  }
-
-  if (user.status === "suspended") {
+  if (!user) {
+    await supabase.auth.signOut({ scope: "local" });
     return NextResponse.json(
-      { error: "This account is suspended. Contact a platform administrator." },
+      { error: "Your Supabase account has no EcoCampus profile. Contact an administrator." },
+      { status: 403 },
+    );
+  }
+  if (user.is_demo === 1) {
+    await supabase.auth.signOut({ scope: "local" });
+    return NextResponse.json(
+      { error: "Demo profiles cannot sign in. Use an account created through registration or Admin setup." },
+      { status: 403 },
+    );
+  }
+  if (!matchesLoginRole(user.role, role)) {
+    await supabase.auth.signOut({ scope: "local" });
+    return NextResponse.json(
+      { error: `This account is registered for the ${user.role === "super_admin" ? "admin" : user.role} portal.` },
+      { status: 403 },
+    );
+  }
+  if (user.status === "suspended" || user.status === "deleted") {
+    await supabase.auth.signOut({ scope: "local" });
+    return NextResponse.json(
+      { error: "This account cannot sign in. Contact a platform administrator." },
       { status: 403 },
     );
   }
   if (user.status === "pending") {
+    await supabase.auth.signOut({ scope: "local" });
     return NextResponse.json(
-      {
-        error:
-          "Your staff account is awaiting administrator approval. You will be able to sign in once approved.",
-      },
+      { error: "Your staff account is awaiting administrator approval." },
       { status: 403 },
     );
   }
-  if (!user.email_verified) {
+  if (!data.user.email_confirmed_at) {
+    await supabase.auth.signOut({ scope: "local" });
     return NextResponse.json(
-      { error: "Please verify your email before signing in. Open the verification page and enter the 6-digit code we emailed you, or request a new one.", needsVerification: true },
+      { error: "Please verify your email before signing in. Request a new code if needed.", needsVerification: true },
       { status: 403 },
     );
   }
 
-  run(
-    "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
-    nowIso(),
-    user.id,
-  );
-  await createSession(user.id, {
-    ip,
-    userAgent: req.headers.get("user-agent") || undefined,
-  });
+  run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
   logAudit({
     action: "User signed in",
     entityType: "user",

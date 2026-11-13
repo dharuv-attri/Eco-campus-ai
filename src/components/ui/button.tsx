@@ -8,9 +8,8 @@ const base =
 
 export const buttonVariants = {
   primary:
-    "bg-forest-800 text-white shadow-sm hover:bg-forest-700 hover:shadow-md dark:bg-emerald-600 dark:hover:bg-emerald-500",
-  secondary:
-    "bg-emerald-500 text-forest-950 shadow-sm hover:bg-emerald-400 dark:bg-emerald-400 dark:text-forest-950",
+    "bg-[var(--brand)] text-white shadow-sm hover:brightness-110 hover:shadow-md",
+  secondary: "bg-[var(--brand-accent)] text-forest-950 shadow-sm hover:brightness-105",
   outline:
     "border bg-transparent text-ink-800 hover:border-emerald-500/40 hover:bg-emerald-500/5 dark:text-ink-100",
   soft: "bg-emerald-500/10 text-forest-800 hover:bg-emerald-500/15 dark:text-emerald-300",

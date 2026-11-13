@@ -39,23 +39,24 @@ export function CmsEditor({
   const router = useRouter();
   const heroRef = useRef<HTMLInputElement>(null);
   const logoRef = useRef<HTMLInputElement>(null);
+  const backgroundRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<Tab>("content");
   const [settings, setSettings] = useState(initialSettings);
   const [sections, setSections] = useState(initialSections);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState<"hero" | "logo" | null>(null);
+  const [uploading, setUploading] = useState<"hero" | "logo" | "background" | null>(null);
 
   function set(key: string, value: string) {
     setSettings((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function upload(file: File, target: "hero" | "logo") {
+  async function upload(file: File, target: "hero" | "logo" | "background") {
     if (!file.type.startsWith("image/")) {
       toast.error("Choose an image file.");
       return;
     }
-    if (file.size > 6 * 1024 * 1024) {
-      toast.error("Images must be 6 MB or smaller.");
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Images must be 5 MB or smaller.");
       return;
     }
     setUploading(target);
@@ -65,10 +66,18 @@ export function CmsEditor({
       const response = await fetch("/api/uploads", { method: "POST", body });
       const data = (await response.json()) as { ok?: boolean; url?: string; error?: string };
       if (!response.ok || !data.url) throw new Error(data.error || "Upload failed.");
-      set(target === "hero" ? "hero_image" : "logo_url", data.url);
-      toast.success("Image uploaded. Save settings to publish it.");
+      const key =
+        target === "hero" ? "hero_image" : target === "logo" ? "logo_url" : "background_image";
+      set(key, data.url);
+      await postJson("/api/admin/settings", { settings: { [key]: data.url } });
+      toast.success("Image uploaded and published.");
+      router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Upload failed.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Image uploaded but could not be published. Save settings to try again.",
+      );
     } finally {
       setUploading(null);
     }
@@ -296,6 +305,13 @@ export function CmsEditor({
                   onPick={() => logoRef.current?.click()}
                   uploading={uploading === "logo"}
                 />
+                <ImageField
+                  label="Site background image"
+                  value={settings.background_image ?? ""}
+                  onChange={(value) => set("background_image", value)}
+                  onPick={() => backgroundRef.current?.click()}
+                  uploading={uploading === "background"}
+                />
               </div>
               <input
                 ref={heroRef}
@@ -315,6 +331,16 @@ export function CmsEditor({
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) void upload(file, "logo");
+                }}
+              />
+              <input
+                ref={backgroundRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void upload(file, "background");
                 }}
               />
               <div className="grid gap-4 sm:grid-cols-2">
@@ -357,9 +383,25 @@ export function CmsEditor({
                   </div>
                 </div>
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ColorField
+                  id="cms-background"
+                  label="Light theme background"
+                  value={settings.background_color ?? "#F6FAF7"}
+                  fallback="#F6FAF7"
+                  onChange={(value) => set("background_color", value)}
+                />
+                <ColorField
+                  id="cms-dark-background"
+                  label="Dark theme background"
+                  value={settings.dark_background_color ?? "#0A1410"}
+                  fallback="#0A1410"
+                  onChange={(value) => set("dark_background_color", value)}
+                />
+              </div>
               <p className="rounded-xl bg-amber-500/[0.06] p-3 text-[11px] leading-5 text-amber-800 dark:text-amber-200">
-                Brand colours are stored for future theming components. The current accessible forest theme uses
-                the built-in palette; ensure any new colours meet WCAG contrast before relying on them.
+                These colors apply to the live site after saving. Keep text readable against both backgrounds and
+                ensure your brand colors provide sufficient contrast.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -546,6 +588,41 @@ export function CmsEditor({
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+function ColorField({
+  id,
+  label,
+  value,
+  fallback,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  fallback: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex gap-2">
+        <input
+          id={id}
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          className="h-10 w-14 cursor-pointer rounded-lg border bg-transparent p-1"
+        />
+        <Input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="font-mono uppercase"
+          maxLength={7}
+        />
+      </div>
     </div>
   );
 }

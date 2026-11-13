@@ -11,6 +11,9 @@ export function getPublicStats() {
     rejected: number;
     demo: number;
     this_month: number;
+    students: number;
+    points: number;
+    engagement: number;
   }>(
     `SELECT
       COUNT(*) AS total,
@@ -19,12 +22,13 @@ export function getPublicStats() {
       SUM(CASE WHEN status IN ('assigned','in_progress','reopened') THEN 1 ELSE 0 END) AS in_progress,
       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
       SUM(CASE WHEN is_demo = 1 THEN 1 ELSE 0 END) AS demo,
-      SUM(CASE WHEN substr(created_at,1,7) = substr(?,1,7) THEN 1 ELSE 0 END) AS this_month
-     FROM complaints`,
+      SUM(CASE WHEN substr(created_at,1,7) = substr(?,1,7) THEN 1 ELSE 0 END) AS this_month,
+      (SELECT COUNT(*) FROM users WHERE role = 'student' AND status = 'active') AS students,
+      (SELECT COALESCE(SUM(points), 0) FROM leaderboard_points) AS points,
+      (SELECT COUNT(DISTINCT user_id) FROM leaderboard_points) AS engagement
+     FROM complaints
+     WHERE status != 'archived'`,
     new Date().toISOString(),
-  );
-  const students = one<{ count: number }>(
-    "SELECT COUNT(*) AS count FROM users WHERE role = 'student' AND status = 'active'",
   );
   return {
     total: row?.total ?? 0,
@@ -34,7 +38,10 @@ export function getPublicStats() {
     rejected: row?.rejected ?? 0,
     demo: row?.demo ?? 0,
     thisMonth: row?.this_month ?? 0,
-    students: students?.count ?? 0,
+    students: row?.students ?? 0,
+    points: row?.points ?? 0,
+    verifications: row?.resolved ?? 0,
+    engagement: row?.engagement ?? 0,
   };
 }
 
@@ -133,7 +140,7 @@ export function getMonthlyTrend() {
 export function getStudentStats(userId: string) {
   const row = one<{ total: number; open: number; resolved: number; pending: number }>(
     `SELECT COUNT(*) AS total,
-      SUM(CASE WHEN status NOT IN ('closed','rejected','verified') THEN 1 ELSE 0 END) AS open,
+      SUM(CASE WHEN status NOT IN ('closed','rejected','verified','archived') THEN 1 ELSE 0 END) AS open,
       SUM(CASE WHEN status IN ('verified','closed') THEN 1 ELSE 0 END) AS resolved,
       SUM(CASE WHEN status IN ('submitted','under_review') THEN 1 ELSE 0 END) AS pending
      FROM complaints WHERE reporter_id = ?`,
@@ -175,8 +182,8 @@ export function getStaffStats(user: SessionUser) {
       SUM(CASE WHEN status = 'assigned' THEN 1 ELSE 0 END) AS assigned,
       SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
       SUM(CASE WHEN status IN ('resolved','verified','closed') THEN 1 ELSE 0 END) AS resolved,
-      SUM(CASE WHEN priority IN ('high','emergency') AND status NOT IN ('resolved','verified','closed','rejected') THEN 1 ELSE 0 END) AS high
-     FROM complaints WHERE (assigned_staff_id = ?${deptClause})`,
+      SUM(CASE WHEN priority IN ('high','emergency') AND status NOT IN ('resolved','verified','closed','rejected','archived') THEN 1 ELSE 0 END) AS high
+     FROM complaints WHERE (assigned_staff_id = ?${deptClause}) AND status != 'archived'`,
     ...params,
   );
   return {

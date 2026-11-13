@@ -94,7 +94,7 @@ export function listMapIssues(limit = 200) {
     `SELECT c.id, c.complaint_code, c.title, c.category, c.status, c.priority, c.lat, c.lng,
        c.building, c.specific_location, c.is_demo, l.name AS location_name
      FROM complaints c LEFT JOIN campus_locations l ON l.id = c.location_id
-     WHERE c.status != 'rejected' AND c.lat IS NOT NULL AND c.lng IS NOT NULL
+     WHERE c.status NOT IN ('rejected', 'archived') AND c.lat IS NOT NULL AND c.lng IS NOT NULL
      ORDER BY c.created_at DESC LIMIT ?`,
     limit,
   );

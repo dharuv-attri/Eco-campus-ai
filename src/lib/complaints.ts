@@ -80,7 +80,7 @@ function hydrateComplaint(base: FullComplaint): FullComplaint {
 
 export function listPublicComplaints(limit = 6) {
   return all<FullComplaint>(
-    `${COMPLAINT_SELECT} WHERE c.status NOT IN ('rejected') ORDER BY c.created_at DESC LIMIT ?`,
+    `${COMPLAINT_SELECT} WHERE c.status NOT IN ('rejected', 'archived') ORDER BY c.created_at DESC LIMIT ?`,
     limit,
   );
 }
@@ -88,7 +88,7 @@ export function listPublicComplaints(limit = 6) {
 export function listComplaintsForMap() {
   return all<FullComplaint>(
     `${COMPLAINT_SELECT}
-     WHERE c.status NOT IN ('rejected')
+     WHERE c.status NOT IN ('rejected', 'archived')
        AND ((c.lat IS NOT NULL AND c.lng IS NOT NULL) OR c.location_id IS NOT NULL)
      ORDER BY c.created_at DESC LIMIT 500`,
   );
@@ -290,6 +290,7 @@ export interface ComplaintFilters {
   reporterId?: string;
   /** Restricts staff results to work assigned to them or to their department. */
   staffAccess?: { userId: string; departmentId?: string | null };
+  excludeArchived?: boolean;
   departmentId?: string;
   staffId?: string;
   status?: string;
@@ -318,6 +319,7 @@ function complaintWhere(filters: ComplaintFilters) {
       clauses.push("c.assigned_staff_id = ?");
       params.push(filters.staffAccess.userId);
     }
+    if (filters.excludeArchived) clauses.push("c.status != 'archived'");
   }
   if (filters.departmentId) {
     clauses.push("c.assigned_department_id = ?");

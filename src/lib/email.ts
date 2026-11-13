@@ -183,6 +183,16 @@ export function appBaseUrl() {
   return appUrl();
 }
 
+export function appBaseUrlForRequest(requestUrl: URL) {
+  if (
+    process.env.NODE_ENV !== "production" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(requestUrl.hostname)
+  ) {
+    return requestUrl.origin;
+  }
+  return appBaseUrl();
+}
+
 export type OtpPurpose = "login" | "verify";
 
 /** Send a 6-digit code plus a magic link for passwordless sign-in or email verification. */

@@ -1,16 +1,17 @@
 import "server-only";
+import { cache } from "react";
 import { all, one, run } from "@/lib/db";
 import { DEFAULT_SETTINGS, DEFAULT_SECTIONS } from "@/lib/constants";
 import { nowIso } from "@/lib/utils";
 
 export type SettingsMap = Record<string, string>;
 
-export function getSettings(): SettingsMap {
+export const getSettings = cache(function getSettings(): SettingsMap {
   const rows = all<{ key: string; value: string }>("SELECT key, value FROM website_settings");
   const map: SettingsMap = { ...DEFAULT_SETTINGS };
   for (const row of rows) map[row.key] = row.value;
   return map;
-}
+});
 
 export function getSetting(key: string, fallback = "") {
   const row = one<{ value: string }>("SELECT value FROM website_settings WHERE key = ?", key);
@@ -57,9 +58,9 @@ export interface WebsiteSection {
   sort_order: number;
 }
 
-export function getSections(): WebsiteSection[] {
+export const getSections = cache(function getSections(): WebsiteSection[] {
   return all<WebsiteSection>("SELECT * FROM website_sections ORDER BY sort_order ASC");
-}
+});
 
 export function isSectionEnabled(key: string) {
   const row = one<{ enabled: number }>("SELECT enabled FROM website_sections WHERE key = ?", key);

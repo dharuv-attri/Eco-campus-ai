@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Clock3, MessageSquare, RotateCcw, Wrench } from "lucide-react";
+import { Archive, Check, CircleAlert, Clock3, MessageSquare, RotateCcw, Wrench } from "lucide-react";
 import { STATUSES, STATUS_META, type StatusValue } from "@/lib/constants";
 import { cn, formatDateTime, statusMeta } from "@/lib/utils";
 import type { StatusHistory, StaffUpdate } from "@/types";
@@ -15,6 +15,19 @@ export function ComplaintProgress({ status, className }: { status: string; class
           <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">Report not accepted</p>
           <p className="mt-0.5 text-xs leading-5 text-rose-700/80 dark:text-rose-300/80">
             {meta.description}. Contact the campus administrator if you believe this was a mistake.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "archived") {
+    return (
+      <div className={cn("flex items-start gap-3 rounded-2xl border border-ink-300/50 bg-ink-500/[0.06] p-4 dark:border-ink-700 dark:bg-white/[0.03]", className)}>
+        <Archive className="mt-0.5 h-5 w-5 shrink-0 text-ink-500 dark:text-ink-300" />
+        <div>
+          <p className="text-sm font-semibold">Report archived</p>
+          <p className="mt-0.5 text-xs leading-5 text-ink-500 dark:text-ink-300">
+            {meta.description}. An administrator can restore it while keeping its history.
           </p>
         </div>
       </div>

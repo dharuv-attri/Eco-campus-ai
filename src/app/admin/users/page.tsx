@@ -22,7 +22,7 @@ export default async function AdminUsersPage() {
       <PageHeader
         eyebrow="People & access"
         title="User management"
-        description="Approve staff registrations, assign departments, suspend accounts and manage roles. Administrator roles are restricted to super administrators."
+        description="Approve staff registrations, assign departments, change student and staff roles, and remove accounts. Administrator roles are restricted to super administrators."
       />
       {pending ? (
         <p className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs text-amber-800 dark:text-amber-200">

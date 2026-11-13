@@ -314,9 +314,12 @@ CREATE TABLE IF NOT EXISTS rate_limit_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_complaints_reporter ON complaints(reporter_id);
+CREATE INDEX IF NOT EXISTS idx_complaints_reporter_created ON complaints(reporter_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_complaints_status ON complaints(status);
 CREATE INDEX IF NOT EXISTS idx_complaints_department ON complaints(assigned_department_id);
+CREATE INDEX IF NOT EXISTS idx_complaints_department_created ON complaints(assigned_department_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_complaints_staff ON complaints(assigned_staff_id);
+CREATE INDEX IF NOT EXISTS idx_complaints_staff_created ON complaints(assigned_staff_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_complaints_created ON complaints(created_at);
 CREATE INDEX IF NOT EXISTS idx_complaints_category ON complaints(category);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);

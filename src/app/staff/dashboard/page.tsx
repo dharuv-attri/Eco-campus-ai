@@ -15,7 +15,7 @@ import { ComplaintCard } from "@/components/complaints/complaint-card";
 import { LinkButton } from "@/components/ui/button";
 import { EmptyState, StatCard } from "@/components/ui/misc";
 import { getStaffStats } from "@/lib/analytics";
-import { listComplaints } from "@/lib/complaints";
+import { countComplaints, listComplaints } from "@/lib/complaints";
 import { all } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { formatNumber, timeAgo } from "@/lib/utils";
@@ -27,7 +27,7 @@ export default async function StaffDashboard() {
   const user = await requireRole(["staff"], "/staff/dashboard");
   const stats = getStaffStats(user);
   const access = { userId: user.id, departmentId: user.departmentId };
-  const assigned = listComplaints({ staffAccess: access, limit: 5 });
+  const assigned = listComplaints({ staffAccess: access, excludeArchived: true, limit: 5 });
   const openAssigned = assigned.filter((item) => !["resolved", "verified", "closed", "rejected"].includes(item.status));
   const myReports = listComplaints({ reporterId: user.id, limit: 3 });
   const notifications = all<Notification>(
@@ -166,7 +166,7 @@ export default async function StaffDashboard() {
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-ink-400">Direct assignments</dt>
-                <dd className="text-right font-medium">{formatNumber(listComplaints({ staffId: user.id, limit: 100 }).length)}</dd>
+                <dd className="text-right font-medium">{formatNumber(countComplaints({ staffId: user.id }))}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-ink-400">Role</dt>

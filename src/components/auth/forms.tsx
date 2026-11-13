@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, FieldHint } from "@/components/ui/form";
 import { cn } from "@/lib/utils";
+import type { LoginRole } from "@/types";
 
 function GoogleIcon() {
   return (
@@ -29,7 +30,7 @@ function GoogleIcon() {
   );
 }
 
-function GoogleButton({ enabled }: { enabled: boolean }) {
+function GoogleButton({ enabled, role }: { enabled: boolean; role?: LoginRole }) {
   if (!enabled) {
     return (
       <div>
@@ -37,19 +38,19 @@ function GoogleButton({ enabled }: { enabled: boolean }) {
           type="button"
           disabled
           className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border bg-ink-50 text-sm font-semibold text-ink-400 dark:bg-white/5"
-          title="Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable Google sign-in"
+          title="Configure Supabase Auth and enable Google in its provider settings"
         >
           <GoogleIcon /> Continue with Google
         </button>
         <p className="mt-1.5 text-center text-[10px] text-ink-400">
-          Google OAuth is not configured. Add credentials in .env.local to enable it.
+          Add the Supabase URL and publishable key in .env.local, and enable Google in Supabase Auth settings.
         </p>
       </div>
     );
   }
   return (
     <a
-      href="/api/auth/google"
+      href={`/api/auth/google${role ? `?role=${role}` : ""}`}
       className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border bg-white text-sm font-semibold text-ink-700 transition hover:bg-ink-50 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
     >
       <GoogleIcon /> Continue with Google
@@ -87,25 +88,19 @@ function AuthHeading({ title, description }: { title: string; description: strin
   );
 }
 
-const demoAccounts = [
-  { label: "Student", email: "student@ecocampus.local", password: "EcoStudent#2026" },
-  { label: "Staff", email: "staff@ecocampus.local", password: "EcoStaff#2026" },
-  { label: "Admin", email: "eco.admin@ecocampus.local", password: "EcoAdmin#2026" },
-  { label: "Super admin", email: "admin@ecocampus.local", password: "EcoAdmin#2026" },
-];
-
 export function LoginForm({
   googleEnabled,
   nextPath,
   initialError,
-  showDemo,
+  initialRole,
 }: {
   googleEnabled: boolean;
   nextPath?: string;
   initialError?: string;
-  showDemo: boolean;
+  initialRole?: LoginRole;
 }) {
   const router = useRouter();
+  const [requestedRole, setRequestedRole] = useState<LoginRole | undefined>(initialRole);
   const [view, setView] = useState<"password" | "otp">("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -132,9 +127,18 @@ export function LoginForm({
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, role: requestedRole }),
       });
-      const data = (await response.json()) as { ok?: boolean; error?: string; redirect?: string };
+      const data = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        redirect?: string;
+        needsVerification?: boolean;
+      };
+      if (!response.ok && data.needsVerification) {
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+        return;
+      }
       if (!response.ok) throw new Error(data.error || "Sign-in failed.");
       finishLogin(data);
     } catch (err) {
@@ -152,21 +156,46 @@ export function LoginForm({
       const response = await fetch("/api/auth/otp/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, purpose: "login" }),
+        body: JSON.stringify({ email, purpose: "login", role: requestedRole }),
       });
       const data = (await response.json()) as {
         ok?: boolean;
         error?: string;
         message?: string;
         devCode?: string;
+        needsVerification?: boolean;
       };
       if (!response.ok) throw new Error(data.error || "Could not send a sign-in code.");
+      if (data.needsVerification) {
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+        return;
+      }
       setInfo(data.message || "Check your email for the code.");
       if (data.devCode) setOtpDevCode(data.devCode);
       setOtpStep("code");
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send a sign-in code.");
+      setLoading(false);
+    }
+  }
+
+  async function resendOtp() {
+    setError("");
+    setInfo("");
+    setLoading(true);
+    try {
+      const response = await fetch("/api/auth/otp/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, purpose: "login", role: requestedRole }),
+      });
+      const data = (await response.json()) as { error?: string; message?: string };
+      if (!response.ok) throw new Error(data.error || "Could not resend the sign-in code.");
+      setInfo(data.message || "A new code has been sent.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resend the sign-in code.");
+    } finally {
       setLoading(false);
     }
   }
@@ -179,7 +208,7 @@ export function LoginForm({
       const response = await fetch("/api/auth/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code: otpCode, purpose: "login" }),
+        body: JSON.stringify({ email, code: otpCode, purpose: "login", role: requestedRole }),
       });
       const data = (await response.json()) as { ok?: boolean; error?: string; redirect?: string };
       if (!response.ok) throw new Error(data.error || "Could not verify the code.");
@@ -203,7 +232,35 @@ export function LoginForm({
     <div>
       <AuthHeading title="Welcome back" description="Sign in to report problems, track progress and manage your campus." />
       <div className="surface p-5 sm:p-7">
-        <GoogleButton enabled={googleEnabled} />
+        <div className="mb-5">
+          <p className="mb-2 text-center text-xs font-semibold text-ink-500">Choose portal (optional)</p>
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-ink-100 p-1 dark:bg-white/5">
+            {([
+              ["student", "Student"],
+              ["staff", "Staff"],
+              ["admin", "Admin"],
+            ] as const).map(([role, label]) => (
+              <button
+                key={role}
+                type="button"
+                aria-pressed={requestedRole === role}
+                onClick={() => setRequestedRole(requestedRole === role ? undefined : role)}
+                className={cn(
+                  "rounded-lg px-2 py-2 text-xs font-semibold transition",
+                  requestedRole === role
+                    ? "bg-white text-forest-800 shadow-sm dark:bg-ink-800 dark:text-white"
+                    : "text-ink-500 hover:text-ink-800 dark:text-ink-300",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-center text-[10px] leading-4 text-ink-400">
+            Portal access is assigned to your account; choosing a portal never changes your role.
+          </p>
+        </div>
+        <GoogleButton enabled={googleEnabled} role={requestedRole} />
         <div className="my-5 flex items-center gap-3">
           <span className="h-px flex-1 bg-[var(--border)]" />
           <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-400">
@@ -272,7 +329,7 @@ export function LoginForm({
             {otpStep === "email" ? (
               <form onSubmit={requestOtp} className="space-y-4">
                 <p className="text-xs leading-5 text-ink-500 dark:text-ink-300">
-                  We will email a 6-digit one-time code (valid for 10 minutes) and a sign-in link. No password needed.
+                  We will email a one-time sign-in code. No password needed.
                 </p>
                 <div>
                   <Label htmlFor="otp-email">Email address</Label>
@@ -332,12 +389,8 @@ export function LoginForm({
                   <button
                     type="button"
                     disabled={loading}
-                    onClick={() => {
-                      setOtpStep("email");
-                      setInfo("");
-                      setOtpDevCode("");
-                    }}
-                    className="text-ink-500 hover:underline"
+                    onClick={() => void resendOtp()}
+                    className="text-ink-500 hover:underline disabled:opacity-50"
                   >
                     Resend code
                   </button>
@@ -360,38 +413,16 @@ export function LoginForm({
             Create an account
           </Link>
         </p>
+        <p className="mt-2 text-center text-xs text-ink-500">
+          First-time administrator?{" "}
+          <Link
+            href="/admin-setup"
+            className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300"
+          >
+            Set up the first Admin
+          </Link>
+        </p>
       </div>
-
-      {showDemo ? (
-        <div className="mt-5 rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/[0.06] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-300">
-            Demo workspace accounts
-          </p>
-          <p className="mt-1 text-[11px] leading-5 text-ink-500 dark:text-ink-300">
-            Local demo credentials only. Never use these in production. Click to fill the form.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {demoAccounts.map((account) => (
-              <button
-                key={account.email}
-                type="button"
-                onClick={() => {
-                  setEmail(account.email);
-                  setPassword(account.password);
-                  setOtpStep("email");
-                  setError("");
-                }}
-                className="rounded-lg border bg-white/70 px-2.5 py-2 text-left transition hover:border-emerald-500/40 dark:bg-white/5"
-              >
-                <span className="block text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                  {account.label}
-                </span>
-                <span className="mt-0.5 block truncate text-[10px] text-ink-500">{account.email}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -468,13 +499,14 @@ export function SignupForm({
         message?: string;
         verificationUrl?: string;
         devCode?: string;
+        requiresVerification?: boolean;
       };
       if (!response.ok) throw new Error(data.error || "Could not create your account.");
       setSuccess({
         message: data.message || "Account created.",
         verifyUrl: data.verificationUrl,
         devCode: data.devCode,
-        email: form.email,
+        email: data.requiresVerification ? form.email : undefined,
       });
       setLoading(false);
     } catch (err) {
@@ -539,7 +571,10 @@ export function SignupForm({
     <div>
       <AuthHeading title="Create your account" description="Choose your role. Staff accounts are reviewed by an administrator." />
       <div className="surface p-5 sm:p-7">
-        <GoogleButton enabled={googleEnabled} />
+        <GoogleButton enabled={googleEnabled} role="student" />
+        <p className="mt-1.5 text-center text-[10px] leading-4 text-ink-400">
+          New Google accounts start as Student. Staff and Admin roles require approval or administrator assignment.
+        </p>
         <div className="my-5 flex items-center gap-3">
           <span className="h-px flex-1 bg-[var(--border)]" />
           <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-400">or with email</span>
@@ -566,6 +601,9 @@ export function SignupForm({
             </button>
           ))}
         </div>
+        <p className="-mt-3 mb-4 text-center text-[10px] leading-4 text-ink-400">
+          Admin accounts are created by a super administrator and cannot be self-registered.
+        </p>
 
         <form onSubmit={submit} className="space-y-4">
           {error ? <ErrorBox>{error}</ErrorBox> : null}
@@ -797,7 +835,7 @@ export function ForgotForm() {
   );
 }
 
-export function ResetForm({ token }: { token: string }) {
+export function ResetForm() {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -817,7 +855,7 @@ export function ResetForm({ token }: { token: string }) {
       const response = await fetch("/api/auth/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ password }),
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not reset your password.");
@@ -883,7 +921,13 @@ export function VerifyForm({ token, initialEmail }: { token?: string; initialEma
   const [email, setEmail] = useState(initialEmail || "");
   const [code, setCode] = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
-  const [resendState, setResendState] = useState<{ loading: boolean; message?: string; devCode?: string; url?: string }>({
+  const [resendState, setResendState] = useState<{
+    loading: boolean;
+    message?: string;
+    error?: string;
+    devCode?: string;
+    url?: string;
+  }>({
     loading: false,
   });
 
@@ -955,7 +999,7 @@ export function VerifyForm({ token, initialEmail }: { token?: string; initialEma
     } catch (err) {
       setResendState({
         loading: false,
-        message: err instanceof Error ? err.message : "Could not send a new verification code.",
+        error: err instanceof Error ? err.message : "Could not send a new verification code.",
       });
     }
   }
@@ -1017,6 +1061,7 @@ export function VerifyForm({ token, initialEmail }: { token?: string; initialEma
 
             <form onSubmit={resend} className="space-y-3 border-t pt-4">
               {resendState.message ? <SuccessBox>{resendState.message}</SuccessBox> : null}
+              {resendState.error ? <ErrorBox>{resendState.error}</ErrorBox> : null}
               {resendState.devCode ? (
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-xs">
                   <p className="font-semibold text-amber-700 dark:text-amber-300">Demo mode: email delivery not configured.</p>

@@ -51,7 +51,7 @@ export function ComplaintFilterBar({
   }
 
   const hasFilters = Boolean(values.q || values.status || values.category || values.priority);
-  const statusOptions = ["", ...STATUSES, "rejected", "reopened"];
+  const statusOptions = ["", ...STATUSES, "rejected", "reopened", "archived"];
 
   return (
     <div className={cn("surface p-3 sm:p-4", pending && "opacity-70", className)}>

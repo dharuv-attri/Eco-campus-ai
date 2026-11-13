@@ -27,6 +27,7 @@ export default async function StaffTasksPage({
   const access = { userId: user.id, departmentId: user.departmentId };
   const filters = {
     staffAccess: access,
+    excludeArchived: get("status") !== "archived",
     q: get("q") || undefined,
     status: get("status") || undefined,
     category: get("category") || undefined,
@@ -34,7 +35,7 @@ export default async function StaffTasksPage({
   };
   const reports = listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
   const total = countComplaints(filters);
-  const statusCounts = getStatusCounts({ staffAccess: access });
+  const statusCounts = getStatusCounts({ staffAccess: access, excludeArchived: true });
   const allCount = Object.values(statusCounts).reduce((sum, value) => sum + value, 0);
   const openCount = ["submitted", "under_review", "assigned", "in_progress", "reopened"].reduce(
     (sum, status) => sum + (statusCounts[status] ?? 0),

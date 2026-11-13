@@ -25,6 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!canManageComplaint(user, complaint)) {
     return apiError("This report is not assigned to you or your department.", 403);
   }
+  if (complaint.status === "archived") {
+    return apiError("This report is archived. Ask an administrator to restore it before making updates.", 409);
+  }
 
   let json: unknown;
   try {
@@ -63,24 +66,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (["progress", "request_info", "note"].includes(input.action) && message.length < 3) {
     return apiError("Add a short message for this update.");
   }
+  if (input.action === "archive" && message.length < 10) {
+    return apiError("Add a reason for archiving this report (at least 10 characters).");
+  }
 
   let updateType = "progress";
   if (input.action === "resolve") updateType = "resolution";
   if (input.action === "note" || input.action === "request_info") updateType = "note";
 
-  run(
-    `INSERT INTO staff_updates (id, complaint_id, staff_id, update_type, message, image_url, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    randomUUID(),
-    id,
-    user.id,
-    updateType,
-    message || (input.action === "start" ? "Work started on site." : resolutionNotes),
-    imageUrls[0] ?? null,
-    nowIso(),
-  );
+  if (input.action !== "archive") {
+    run(
+      `INSERT INTO staff_updates (id, complaint_id, staff_id, update_type, message, image_url, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(),
+      id,
+      user.id,
+      updateType,
+      message || (input.action === "start" ? "Work started on site." : resolutionNotes),
+      imageUrls[0] ?? null,
+      nowIso(),
+    );
+  }
 
-  if (input.action === "start" || input.action === "progress") {
+  if (input.action === "archive") {
+    transitionComplaint({
+      complaint,
+      toStatus: "archived",
+      actor: user,
+      note: message,
+      notify: {
+        title: "Report archived",
+        message: `${complaint.complaint_code} was archived by the assigned team. Its history remains available.`,
+      },
+    });
+  } else if (input.action === "start" || input.action === "progress") {
     transitionComplaint({
       complaint,
       toStatus: "in_progress",

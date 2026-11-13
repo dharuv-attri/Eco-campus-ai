@@ -33,6 +33,7 @@ type AdminAction =
   | "verify"
   | "close"
   | "reopen"
+  | "restore"
   | "delete_demo";
 
 interface DepartmentOption {
@@ -61,6 +62,7 @@ const actions: Array<{
   { key: "close", label: "Close", description: "Close a resolved or verified report.", icon: CheckCircle2 },
   { key: "reject", label: "Reject", description: "Decline a report with a clear reason.", icon: XCircle },
   { key: "reopen", label: "Reopen", description: "Reopen a closed, resolved or rejected report.", icon: RotateCcw },
+  { key: "restore", label: "Restore", description: "Restore an archived report to its previous status.", icon: RotateCcw },
   { key: "delete_demo", label: "Delete demo", description: "Permanently delete a demo-only record.", icon: Trash2 },
 ];
 
@@ -153,6 +155,7 @@ export function AdminComplaintActions({
             const unavailable =
               (item.key === "verify" && status !== "resolved") ||
               (item.key === "close" && !["resolved", "verified"].includes(status)) ||
+              (item.key === "restore" && status !== "archived") ||
               (item.key === "delete_demo" && !isDemo);
             return (
               <button

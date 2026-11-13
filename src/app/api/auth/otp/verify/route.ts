@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { one, run } from "@/lib/db";
-import { createSession } from "@/lib/auth";
 import { clientIp, rateLimit, sameOrigin } from "@/lib/http";
-import { consumeOtp } from "@/lib/email";
 import { ROLE_HOME } from "@/lib/constants";
 import { nowIso } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
 import { otpVerifySchema } from "@/lib/validation";
+import { createSupabaseClient } from "@/lib/supabase";
+import { matchesLoginRole } from "@/lib/auth";
+import type { Role } from "@/types";
 
-/** Verify a 6-digit one-time code: either completes email verification or signs the user in. */
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
   const ip = clientIp(req);
@@ -26,31 +26,65 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "Check your details." }, { status: 400 });
   }
-  const { email, code, purpose } = parsed.data;
+  const { email, code, purpose, role } = parsed.data;
 
-  const user = one<{
-    id: string;
-    email: string;
-    full_name: string;
-    role: string;
-    status: string;
-    email_verified: number;
-  }>(
-    "SELECT id, email, full_name, role, status, email_verified FROM users WHERE email = ?",
-    email,
-  );
-  if (!user) return NextResponse.json({ error: "That code is not valid. Request a new one." }, { status: 400 });
-
-  const otpType = purpose === "login" ? ("otp_login" as const) : ("otp_verify" as const);
-  if (!consumeOtp(user.id, code, otpType)) {
+  let supabase;
+  try {
+    supabase = await createSupabaseClient();
+  } catch (error) {
     return NextResponse.json(
-      { error: "That code is incorrect or has expired. Codes last 10 minutes - request a new one." },
+      { error: error instanceof Error ? error.message : "Supabase Auth is not configured." },
+      { status: 503 },
+    );
+  }
+
+  const { data: authData, error: verifyError } = await supabase.auth.verifyOtp({
+    email,
+    token: code,
+    type: purpose === "login" ? "email" : "signup",
+  });
+  if (verifyError || !authData.user?.email) {
+    return NextResponse.json(
+      { error: verifyError?.message || "That code is invalid or has expired. Request a new one." },
       { status: 400 },
     );
   }
 
+  const user = one<{
+    id: string;
+    email: string;
+    role: Role;
+    status: string;
+    full_name: string;
+    is_demo: number;
+  }>(
+    "SELECT id, email, role, status, full_name, is_demo FROM users WHERE lower(email) = ?",
+    authData.user.email.toLowerCase(),
+  );
+  if (!user) {
+    await supabase.auth.signOut({ scope: "local" });
+    return NextResponse.json({ error: "Your account has no EcoCampus profile. Contact an administrator." }, { status: 403 });
+  }
+  if (user.is_demo === 1) {
+    await supabase.auth.signOut({ scope: "local" });
+    return NextResponse.json({ error: "Demo profiles cannot sign in." }, { status: 403 });
+  }
+  run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
+  if (purpose === "login" && !matchesLoginRole(user.role, role)) {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) console.error("Could not clear a role-mismatched OTP session:", error.message);
+    return NextResponse.json(
+      { error: `This account is registered for the ${user.role === "super_admin" ? "admin" : user.role} portal.` },
+      { status: 403 },
+    );
+  }
+
   if (purpose === "verify") {
-    run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) {
+      console.error("Could not clear the session after email verification:", error.message);
+      return NextResponse.json({ error: "Email verified, but sign-out failed. Please sign out before continuing." }, { status: 500 });
+    }
     logAudit({
       action: "Email verified",
       entityType: "user",
@@ -69,21 +103,20 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (user.status === "suspended") {
-    return NextResponse.json({ error: "This account is suspended. Contact a platform administrator." }, { status: 403 });
-  }
-  if (user.status === "pending") {
+  if (user.status === "suspended" || user.status === "deleted" || user.status === "pending") {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) console.error("Could not clear a blocked OTP session:", error.message);
     return NextResponse.json(
-      { error: "Your staff account is awaiting administrator approval. You will be able to sign in once approved." },
+      {
+        error:
+          user.status === "pending"
+            ? "Your staff account is awaiting administrator approval."
+            : "This account cannot sign in. Contact a platform administrator.",
+      },
       { status: 403 },
     );
   }
 
-  run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
-  await createSession(user.id, {
-    ip,
-    userAgent: req.headers.get("user-agent") || undefined,
-  });
   logAudit({
     action: "User signed in (one-time code)",
     entityType: "user",

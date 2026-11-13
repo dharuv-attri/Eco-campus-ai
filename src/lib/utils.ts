@@ -167,3 +167,14 @@ export function safeColor(value: string | null | undefined, fallback: string) {
   if (!value) return fallback;
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
 }
+
+export function safeImageUrl(value: string | null | undefined) {
+  if (!value) return "";
+  if (/^\/uploads\/[a-f0-9-]{36}\.(jpg|jpeg|png|webp)$/i.test(value)) return value;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
+  } catch {
+    return "";
+  }
+}

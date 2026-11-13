@@ -1,13 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { userAdminSchema } from "@/lib/validation";
-import { one, run } from "@/lib/db";
-import { hashPassword } from "@/lib/auth";
+import { one, run, transaction } from "@/lib/db";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { notifyUser } from "@/lib/notifications";
 import { logAudit } from "@/lib/audit";
 import { nowIso } from "@/lib/utils";
 import type { Role } from "@/types";
+import { createSupabaseClient } from "@/lib/supabase";
+import { appBaseUrlForRequest } from "@/lib/email";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const originError = enforceSameOrigin(req);
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return apiError("Only a super administrator can manage administrator accounts.", 403);
   }
 
-  if ((input.action === "role" || input.action === "reset_password") && !isSuper) {
+  if (input.action === "reset_password" && !isSuper) {
     return apiError("Only a super administrator can perform this action.", 403);
   }
 
@@ -71,7 +72,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     case "suspend": {
       if (target.status === "suspended") return apiError("This account is already suspended.");
       run("UPDATE users SET status = 'suspended', updated_at = ? WHERE id = ?", nowIso(), id);
-      run("DELETE FROM sessions WHERE user_id = ?", id);
       break;
     }
     case "reactivate": {
@@ -79,8 +79,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       run("UPDATE users SET status = 'active', updated_at = ? WHERE id = ?", nowIso(), id);
       break;
     }
+    case "remove": {
+      const removal = transaction(() => {
+        const current = one<{ role: Role; status: string }>(
+          "SELECT role, status FROM users WHERE id = ?",
+          id,
+        );
+        if (!current) return "missing";
+        if (current.status === "deleted") return "deleted";
+        if (
+          !isSuper &&
+          (current.role === "admin" || current.role === "super_admin")
+        ) {
+          return "forbidden";
+        }
+        if (current.role === "super_admin" && current.status === "active") {
+          const remaining = one<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM users WHERE role = 'super_admin' AND status = 'active' AND id != ?",
+            id,
+          );
+          if ((remaining?.count ?? 0) === 0) return "last_super_admin";
+        }
+        run("UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?", nowIso(), id);
+        return "removed";
+      });
+      if (removal === "missing") return apiError("User not found.", 404);
+      if (removal === "deleted") return apiError("This account is already removed.");
+      if (removal === "forbidden") {
+        return apiError("Only a super administrator can manage administrator accounts.", 403);
+      }
+      if (removal === "last_super_admin") {
+        return apiError("At least one active super administrator must remain.", 400);
+      }
+      break;
+    }
     case "role": {
       if (!input.role) return apiError("Select a role.");
+      if (!isSuper && input.role !== "student" && input.role !== "staff") {
+        return apiError("Only a super administrator can grant administrator roles.", 403);
+      }
       if (target.role === "super_admin" && input.role !== "super_admin") {
         const remaining = one<{ count: number }>(
           "SELECT COUNT(*) AS count FROM users WHERE role = 'super_admin' AND status = 'active' AND id != ?",
@@ -96,12 +133,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         nowIso(),
         id,
       );
-      run("DELETE FROM sessions WHERE user_id = ?", id);
       notifyUser({
         userId: id,
         type: "account",
         title: "Your account role changed",
-        message: `An administrator changed your role to ${input.role.replaceAll("_", " ")}. Sign in again to continue.`,
+        message: `An administrator changed your role to ${input.role.replaceAll("_", " ")}. Your access now reflects this role.`,
       });
       break;
     }
@@ -126,17 +162,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       break;
     }
     case "reset_password": {
-      if (!input.newPassword || input.newPassword.length < 8) {
-        return apiError("A new password of at least 8 characters is required.");
+      let supabase;
+      try {
+        supabase = await createSupabaseClient();
+      } catch (error) {
+        return apiError(error instanceof Error ? error.message : "Supabase Auth is not configured.", 503);
       }
-      const passwordHash = await hashPassword(input.newPassword);
-      run(
-        "UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
-        passwordHash,
-        nowIso(),
-        id,
-      );
-      run("DELETE FROM sessions WHERE user_id = ?", id);
+      const { error } = await supabase.auth.resetPasswordForEmail(target.email, {
+        redirectTo: `${appBaseUrlForRequest(req.nextUrl)}/api/auth/google/callback?next=/reset-password`,
+      });
+      if (error) return apiError(error.message || "Could not send a password reset email.", 502);
       break;
     }
     default:

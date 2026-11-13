@@ -72,6 +72,7 @@ export default async function AdminComplaintsPage({
           ["Active", ["assigned", "in_progress", "reopened"]],
           ["Resolved", ["resolved", "verified", "closed"]],
           ["Rejected", ["rejected"]],
+          ["Archived", ["archived"]],
         ].map(([label, statuses]) => {
           const count = (statuses as string[]).reduce((sum, status) => sum + (statusCounts[status] ?? 0), 0);
           return (

@@ -26,6 +26,7 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
   password: z.string().min(1, "Enter your password.").max(128),
+  role: z.enum(["student", "staff", "admin"]).optional(),
 });
 
 export const forgotSchema = z.object({
@@ -35,16 +36,17 @@ export const forgotSchema = z.object({
 export const otpRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
   purpose: z.enum(["login", "verify"]),
+  role: z.enum(["student", "staff", "admin"]).optional(),
 });
 
 export const otpVerifySchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
   code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
   purpose: z.enum(["login", "verify"]),
+  role: z.enum(["student", "staff", "admin"]).optional(),
 });
 
 export const resetSchema = z.object({
-  token: z.string().min(10).max(200),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters.")
@@ -53,6 +55,25 @@ export const resetSchema = z.object({
     .regex(/[a-z]/, "Include a lowercase letter.")
     .regex(/[0-9]/, "Include a number."),
 });
+
+export const adminSetupSchema = z
+  .object({
+    fullName: z.string().trim().min(2, "Enter the administrator's name.").max(100),
+    email: z.string().trim().toLowerCase().email("Enter a valid email address.").max(160),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters.")
+      .max(128)
+      .regex(/[A-Z]/, "Include at least one uppercase letter.")
+      .regex(/[a-z]/, "Include at least one lowercase letter.")
+      .regex(/[0-9]/, "Include at least one number."),
+    confirmPassword: z.string().max(128),
+    setupToken: z.string().max(512).optional().default(""),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match.",
+    path: ["confirmPassword"],
+  });
 
 export const profileSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
@@ -92,7 +113,7 @@ export const reopenSchema = z.object({
 });
 
 export const staffUpdateSchema = z.object({
-  action: z.enum(["start", "progress", "resolve", "request_info", "note"]),
+  action: z.enum(["start", "progress", "resolve", "request_info", "note", "archive"]),
   message: z.string().trim().max(1500).optional().or(z.literal("")),
   resolutionNotes: z.string().trim().max(2000).optional().or(z.literal("")),
   imageUrls: z.array(z.string().max(300)).max(5).default([]),
@@ -109,6 +130,7 @@ export const adminComplaintSchema = z.object({
     "verify",
     "close",
     "reopen",
+    "restore",
     "delete_demo",
   ]),
   departmentId: z.string().max(80).optional(),
@@ -120,10 +142,9 @@ export const adminComplaintSchema = z.object({
 });
 
 export const userAdminSchema = z.object({
-  action: z.enum(["approve", "reject", "suspend", "reactivate", "role", "department", "reset_password"]),
+  action: z.enum(["approve", "reject", "suspend", "reactivate", "remove", "role", "department", "reset_password"]),
   role: z.enum(["student", "staff", "admin", "super_admin"]).optional(),
   departmentId: z.string().max(80).optional().nullable(),
-  newPassword: z.string().min(8).max(128).optional(),
   reason: z.string().trim().max(500).optional(),
 });
 
