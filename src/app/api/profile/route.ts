@@ -31,7 +31,7 @@ export async function PATCH(req: NextRequest) {
     return apiError("Profile image reference is invalid.");
   }
 
-  run(
+  await run(
     `UPDATE users SET
        full_name = ?, student_id = ?, course = ?, department = ?, year_semester = ?,
        employee_id = ?, designation = ?, profile_image = ?, updated_at = ?
@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest) {
     user.id,
   );
 
-  logAudit({
+  await logAudit({
     actor: user,
     action: "Updated own profile",
     entityType: "user",

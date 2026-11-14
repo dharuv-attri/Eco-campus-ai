@@ -32,8 +32,8 @@ export default async function StaffReportsPage({
     category: get("category") || undefined,
     priority: get("priority") || undefined,
   };
-  const reports = listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
-  const total = countComplaints(filters);
+  const reports = await listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  const total = await countComplaints(filters);
 
   return (
     <>

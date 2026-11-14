@@ -43,7 +43,7 @@ export default async function TrackPage({
   const params = await searchParams;
   const rawCode = Array.isArray(params.code) ? params.code[0] : params.code;
   const code = rawCode ? normaliseCode(rawCode) : "";
-  const complaint = code ? getComplaintByCode(code) : null;
+  const complaint = code ? await getComplaintByCode(code) : null;
 
   const publicHistory = complaint
     ? complaint.history.map((item) => ({ ...item, changed_by_name: null }))

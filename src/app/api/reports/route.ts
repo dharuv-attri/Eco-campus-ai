@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (auth.response) return auth.response;
   const user = auth.user;
 
-  if (!rateLimit(`report:${user.id}:${clientIp(req)}`, 12, 60 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`report:${user.id}:${clientIp(req)}`, 12, 60 * 60 * 1000)).allowed) {
     return apiError("You have submitted several reports recently. Please try again later.", 429);
   }
 
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   if (imageUrls.length) {
     const placeholders = imageUrls.map(() => "?").join(",");
     const storedNames = imageUrls.map((url) => url.replace("/uploads/", ""));
-    const owned = all<{ stored_name: string }>(
+    const owned = await all<{ stored_name: string }>(
       `SELECT stored_name FROM uploaded_files WHERE owner_id = ? AND stored_name IN (${placeholders})`,
       user.id,
       ...storedNames,
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!input.confirmedDuplicate) {
-    const candidates = duplicateCandidates({
+    const candidates = await duplicateCandidates({
       userId: user.id,
       category: input.category,
       locationId: input.locationId || null,
@@ -81,15 +81,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const settings = getSettings();
+  const settings = await getSettings();
   const anonymous =
     input.anonymous && settings.anonymous_reporting_enabled !== "false" ? 1 : 0;
   const id = randomUUID();
-  const code = complaintCode();
+  const code = await complaintCode();
   const now = nowIso();
   const category = categoryLabel(input.category);
 
-  run(
+  await run(
     `INSERT INTO complaints (
        id, complaint_code, reporter_id, anonymous, title, category, description, priority, status,
        location_id, building, floor, room_number, specific_location, lat, lng,
@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
   );
 
   for (const url of imageUrls) {
-    run(
+    await run(
       `INSERT INTO complaint_images (id, complaint_id, url, kind, uploaded_by, created_at)
        VALUES (?, ?, ?, 'report', ?, ?)`,
       randomUUID(),
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  recordHistory({
+  await recordHistory({
     complaintId: id,
     fromStatus: null,
     toStatus: "submitted",
@@ -134,20 +134,20 @@ export async function POST(req: NextRequest) {
     changedBy: user.id,
   });
 
-  notifyUser({
+  await notifyUser({
     userId: user.id,
     complaintId: id,
     type: "status",
     title: "Report received",
     message: `${code} has been submitted. We will notify you when it is reviewed.`,
   });
-  notifyAdmins({
+  await notifyAdmins({
     complaintId: id,
     type: "new_report",
     title: "New environmental report",
     message: `${code} · ${category} · ${sanitizeText(input.title).slice(0, 100)}`,
   });
-  logAudit({
+  await logAudit({
     actor: user,
     action: "Submitted an environmental report",
     entityType: "complaint",

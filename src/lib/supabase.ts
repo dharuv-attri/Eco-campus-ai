@@ -1,7 +1,9 @@
 import "server-only";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+
+type SupabaseCookie = { name: string; value: string; options: CookieOptions };
 
 function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -31,7 +33,9 @@ export function isSupabaseConfigured() {
   }
 }
 
-export async function createSupabaseClient() {
+export async function createSupabaseClient(options?: {
+  onCookiesSet?: (cookiesToSet: SupabaseCookie[]) => void;
+}) {
   const { url, key } = getSupabaseConfig();
   const cookieStore = await cookies();
   return createServerClient(url, key, {
@@ -40,6 +44,7 @@ export async function createSupabaseClient() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
+        options?.onCookiesSet?.(cookiesToSet);
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
@@ -55,6 +60,30 @@ export async function createSupabaseClient() {
 export function createSupabaseAuthClient() {
   const { url, key } = getSupabaseConfig();
   return createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      persistSession: false,
+    },
+  });
+}
+
+export function getStorageBucketName() {
+  return process.env.SUPABASE_STORAGE_BUCKET?.trim() || "ecocampus-uploads";
+}
+
+export function isSupabaseStorageConfigured() {
+  if (!isSupabaseConfigured()) return false;
+  return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
+export function createSupabaseAdminClient() {
+  const { url } = getSupabaseConfig();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) {
+    throw new Error("Supabase Storage is not configured. Set SUPABASE_SERVICE_ROLE_KEY on the server.");
+  }
+  return createClient(url, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       detectSessionInUrl: false,

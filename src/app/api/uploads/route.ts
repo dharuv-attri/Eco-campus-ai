@@ -1,13 +1,15 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { authorizeApi, clientIp, enforceSameOrigin, apiError, rateLimit } from "@/lib/http";
 import { run } from "@/lib/db";
 import { nowIso } from "@/lib/utils";
 import { logAudit } from "@/lib/audit";
+import { createSupabaseAdminClient, getStorageBucketName, isSupabaseStorageConfigured } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
@@ -40,6 +42,50 @@ function detectType(bytes: Uint8Array): { mime: string; ext: string } | null {
   return null;
 }
 
+async function ensurePublicBucket(storage: SupabaseClient["storage"], bucket: string) {
+  const { data, error } = await storage.getBucket(bucket);
+  if (!error && data) return;
+  const { error: createError } = await storage.createBucket(bucket, { public: true });
+  // A concurrent request may have created it first; only fail on real errors.
+  if (createError && !/already exists/i.test(createError.message)) {
+    throw new Error(createError.message);
+  }
+}
+
+async function storeInSupabase(bytes: Uint8Array, storedName: string, mime: string) {
+  const admin = createSupabaseAdminClient();
+  const bucket = getStorageBucketName();
+  await ensurePublicBucket(admin.storage, bucket);
+  const { error } = await admin.storage.from(bucket).upload(storedName, bytes, {
+    contentType: mime,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+  return {
+    async remove() {
+      const { error: cleanupError } = await admin.storage.from(bucket).remove([storedName]);
+      if (cleanupError) {
+        console.error("Could not remove the unregistered Supabase upload:", cleanupError.message);
+      }
+    },
+  };
+}
+
+async function storeOnLocalDisk(bytes: Uint8Array, storedName: string) {
+  const uploadDir = path.join(process.cwd(), "public", "uploads");
+  await mkdir(uploadDir, { recursive: true });
+  const target = path.join(uploadDir, storedName);
+  if (!target.startsWith(uploadDir + path.sep)) {
+    throw new Error("Invalid upload path.");
+  }
+  await writeFile(target, bytes);
+  return {
+    async remove() {
+      await unlink(target).catch(() => undefined);
+    },
+  };
+}
+
 export async function POST(req: NextRequest) {
   const originError = enforceSameOrigin(req);
   if (originError) return originError;
@@ -47,7 +93,7 @@ export async function POST(req: NextRequest) {
   if (auth.response) return auth.response;
   const user = auth.user;
 
-  if (!rateLimit(`upload:${user.id}:${clientIp(req)}`, 40, 15 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`upload:${user.id}:${clientIp(req)}`, 40, 15 * 60 * 1000)).allowed) {
     return apiError("Too many uploads. Please wait a few minutes.", 429);
   }
 
@@ -67,26 +113,50 @@ export async function POST(req: NextRequest) {
   if (!type) return apiError("Only JPEG, PNG or WebP images are accepted.");
 
   const storedName = `${randomUUID()}.${type.ext}`;
-  const directory = path.join(process.cwd(), "public", "uploads");
+
+  const useSupabaseStorage = isSupabaseStorageConfigured();
+  if (!useSupabaseStorage && process.env.NODE_ENV === "production") {
+    console.error(
+      "Upload rejected: SUPABASE_SERVICE_ROLE_KEY is not set, so persistent Supabase Storage is unavailable in production.",
+    );
+    return apiError(
+      "Image uploads are not configured on this deployment. The administrator must set SUPABASE_SERVICE_ROLE_KEY.",
+      503,
+    );
+  }
+
+  let stored: { remove: () => Promise<void> };
   try {
-    await mkdir(directory, { recursive: true });
-    await writeFile(path.join(directory, storedName), bytes, { flag: "wx" });
-  } catch {
+    stored = useSupabaseStorage
+      ? await storeInSupabase(bytes, storedName, type.mime)
+      : await storeOnLocalDisk(bytes, storedName);
+  } catch (error) {
+    console.error(
+      useSupabaseStorage
+        ? "Could not store uploaded image in Supabase Storage:"
+        : "Could not store uploaded image on local disk:",
+      error instanceof Error ? error.message : error,
+    );
     return apiError("The image could not be stored. Please try again.", 500);
   }
 
-  run(
-    `INSERT INTO uploaded_files (id, owner_id, stored_name, original_name, mime, size, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    randomUUID(),
-    user.id,
-    storedName,
-    file.name.slice(0, 200) || storedName,
-    type.mime,
-    file.size,
-    nowIso(),
-  );
-  logAudit({
+  try {
+    await run(
+      `INSERT INTO uploaded_files (id, owner_id, stored_name, original_name, mime, size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(),
+      user.id,
+      storedName,
+      file.name.slice(0, 200) || storedName,
+      type.mime,
+      file.size,
+      nowIso(),
+    );
+  } catch (error) {
+    await stored.remove();
+    throw error;
+  }
+  await logAudit({
     actor: user,
     action: "Uploaded an image",
     entityType: "file",

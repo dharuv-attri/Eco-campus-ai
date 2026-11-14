@@ -4,12 +4,13 @@ import { all, run } from "@/lib/db";
 import { nowIso } from "@/lib/utils";
 import type { Notification } from "@/types";
 
-export function listUserNotifications(userId: string, limit = 100): Notification[] {
-  return all<Notification>(
+export async function listUserNotifications(userId: string, limit = 100): Promise<Notification[]> {
+  const notifications = await all<Notification>(
     "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
     userId,
     limit,
-  ).map((notification) => ({
+  );
+  return notifications.map((notification) => ({
     id: notification.id,
     user_id: notification.user_id,
     complaint_id: notification.complaint_id,
@@ -21,14 +22,14 @@ export function listUserNotifications(userId: string, limit = 100): Notification
   }));
 }
 
-export function notifyUser(input: {
+export async function notifyUser(input: {
   userId: string;
   complaintId?: string | null;
   type: string;
   title: string;
   message: string;
 }) {
-  run(
+  await run(
     `INSERT INTO notifications (id, user_id, complaint_id, type, title, message, is_read, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
     randomUUID(),
@@ -41,32 +42,32 @@ export function notifyUser(input: {
   );
 }
 
-export function notifyAdmins(input: {
+export async function notifyAdmins(input: {
   complaintId?: string | null;
   type: string;
   title: string;
   message: string;
 }) {
-  const admins = all<{ id: string }>(
+  const admins = await all<{ id: string }>(
     "SELECT id FROM users WHERE role IN ('admin','super_admin') AND status = 'active'",
   );
   for (const admin of admins) {
-    notifyUser({ ...input, userId: admin.id });
+    await notifyUser({ ...input, userId: admin.id });
   }
 }
 
-export function notifyDepartmentStaff(input: {
+export async function notifyDepartmentStaff(input: {
   departmentId: string;
   complaintId?: string | null;
   type: string;
   title: string;
   message: string;
 }) {
-  const staff = all<{ id: string }>(
+  const staff = await all<{ id: string }>(
     "SELECT id FROM users WHERE role = 'staff' AND status = 'active' AND department_id = ?",
     input.departmentId,
   );
   for (const member of staff) {
-    notifyUser({ ...input, userId: member.id });
+    await notifyUser({ ...input, userId: member.id });
   }
 }

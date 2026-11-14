@@ -9,12 +9,12 @@ export const metadata: Metadata = { title: "Users" };
 
 export default async function AdminUsersPage() {
   const actor = await requireRole(["admin", "super_admin"], "/admin/users");
-  const users = all<PublicUser>(
+  const users = await all<PublicUser>(
     `SELECT u.*, (SELECT COUNT(*) FROM complaints c WHERE c.reporter_id = u.id) AS complaint_count
      FROM users u
      ORDER BY CASE u.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, u.created_at DESC`,
   );
-  const departments = all<{ id: string; name: string }>("SELECT id, name FROM departments ORDER BY name ASC");
+  const departments = await all<{ id: string; name: string }>("SELECT id, name FROM departments ORDER BY name ASC");
   const pending = users.filter((person) => person.status === "pending").length;
 
   return (

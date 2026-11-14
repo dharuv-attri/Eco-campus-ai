@@ -12,11 +12,11 @@ import { createSupabaseClient } from "@/lib/supabase";
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
   const ip = clientIp(req);
-  if (!rateLimit(`register:${ip}`, 8, 60 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`register:${ip}`, 8, 60 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many registration attempts. Try again later." }, { status: 429 });
   }
 
-  if (getSettings().registration_open === "false") {
+  if ((await getSettings()).registration_open === "false") {
     return NextResponse.json({ error: "Registration is currently closed." }, { status: 403 });
   }
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data;
 
-  if (one("SELECT id FROM users WHERE lower(email) = ?", data.email)) {
+  if (await one("SELECT id FROM users WHERE lower(email) = ?", data.email)) {
     return NextResponse.json({ error: "An account with this email already exists. Try signing in." }, { status: 409 });
   }
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (!data.departmentId || !data.employeeId) {
       return NextResponse.json({ error: "Staff registration requires an employee ID and department." }, { status: 400 });
     }
-    const department = one<{ id: string; name: string }>(
+    const department = await one<{ id: string; name: string }>(
       "SELECT id, name FROM departments WHERE id = ?",
       data.departmentId,
     );
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   const verified = authData.user.email_confirmed_at ? 1 : 0;
   const status = data.role === "staff" ? "pending" : "active";
   try {
-    run(
+    await run(
       `INSERT INTO users (id, email, password_hash, role, full_name, student_id, course, department, department_id,
         year_semester, employee_id, designation, email_verified, status, provider, is_demo, created_at, updated_at)
        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'email', 0, ?, ?)`,
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     if (error) console.error("Could not clear the session after signup:", error.message);
   }
 
-  logAudit({
+  await logAudit({
     action: data.role === "staff" ? "Staff registration submitted" : "Student registration",
     entityType: "user",
     entityId: id,

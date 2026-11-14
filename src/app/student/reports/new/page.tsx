@@ -9,8 +9,8 @@ export const metadata: Metadata = { title: "Report a problem" };
 
 export default async function StudentNewReportPage() {
   const user = await requireRole(["student"], "/student/reports/new");
-  const settings = getSettings();
-  const locations = listCampusLocations();
+  const settings = await getSettings();
+  const locations = await listCampusLocations();
 
   return (
     <>

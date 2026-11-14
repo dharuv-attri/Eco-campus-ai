@@ -11,11 +11,11 @@ export const metadata: Metadata = { title: "Complaint details" };
 export default async function AdminComplaintDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(["admin", "super_admin"], "/admin/complaints");
   const { id } = await params;
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint) notFound();
 
-  const departments = all<{ id: string; name: string }>("SELECT id, name FROM departments ORDER BY name ASC");
-  const staff = all<{ id: string; full_name: string; department_id: string | null }>(
+  const departments = await all<{ id: string; name: string }>("SELECT id, name FROM departments ORDER BY name ASC");
+  const staff = await all<{ id: string; full_name: string; department_id: string | null }>(
     "SELECT id, full_name, department_id FROM users WHERE role = 'staff' AND status = 'active' ORDER BY full_name ASC",
   );
 

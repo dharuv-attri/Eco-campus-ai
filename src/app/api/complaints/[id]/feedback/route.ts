@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const user = auth.user;
   const { id } = await params;
 
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint) return apiError("Report not found.", 404);
   if (complaint.reporter_id !== user.id && user.role !== "admin" && user.role !== "super_admin") {
     return apiError("You can only review your own reports.", 403);
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!["resolved", "verified", "closed"].includes(complaint.status)) {
     return apiError("Feedback can be added once the issue is resolved.", 400);
   }
-  const existing = one<{ id: string }>("SELECT id FROM complaint_feedback WHERE complaint_id = ?", id);
+  const existing = await one<{ id: string }>("SELECT id FROM complaint_feedback WHERE complaint_id = ?", id);
   if (existing) return apiError("Feedback has already been submitted for this report.", 409);
 
   let json: unknown;
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return apiError(parsed.error.issues[0]?.message || "Check your feedback.");
   }
 
-  run(
+  await run(
     `INSERT INTO complaint_feedback (id, complaint_id, user_id, rating, comment, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
     randomUUID(),
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   );
 
   if (complaint.assigned_staff_id) {
-    notifyUser({
+    await notifyUser({
       userId: complaint.assigned_staff_id,
       complaintId: id,
       type: "feedback",
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       message: `${complaint.complaint_code} received a ${parsed.data.rating}/5 rating.`,
     });
   }
-  logAudit({
+  await logAudit({
     actor: user,
     action: "Submitted resolution feedback",
     entityType: "complaint",

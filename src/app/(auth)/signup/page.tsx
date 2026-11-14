@@ -8,10 +8,11 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 export const metadata: Metadata = { title: "Create account" };
 
 export default async function SignupPage() {
-  const settings = getSettings();
-  const departments = all<{ id: string; name: string }>(
+  const settings = await getSettings();
+  const departmentRows = await all<{ id: string; name: string }>(
     "SELECT id, name FROM departments ORDER BY name",
-  ).map(({ id, name }) => ({ id, name }));
+  );
+  const departments = departmentRows.map(({ id, name }) => ({ id, name }));
   const googleEnabled = isSupabaseConfigured();
 
   if (settings.registration_open === "false") {

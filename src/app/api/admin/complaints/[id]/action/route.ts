@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const user = auth.user;
   const { id } = await params;
 
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint) return apiError("Report not found.", 404);
 
   let json: unknown;
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!["submitted", "reopened"].includes(complaint.status)) {
         return apiError("This report is already under review or assigned.");
       }
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: "under_review",
         actor: user,
@@ -57,14 +57,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "assign": {
       if (!input.departmentId) return apiError("Select a department to assign this report.");
-      const department = one<{ id: string; name: string }>(
+      const department = await one<{ id: string; name: string }>(
         "SELECT id, name FROM departments WHERE id = ?",
         input.departmentId,
       );
       if (!department) return apiError("Department not found.");
       let staffId = input.staffId || null;
       if (staffId) {
-        const staff = one<{ id: string; full_name: string; role: string; status: string }>(
+        const staff = await one<{ id: string; full_name: string; role: string; status: string }>(
           "SELECT id, full_name, role, status FROM users WHERE id = ?",
           staffId,
         );
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       } else {
         staffId = null;
       }
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: "assigned",
         actor: user,
@@ -88,14 +88,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           message: `${complaint.complaint_code} has been assigned to ${department.name}.`,
         },
       });
-      addAssignment({
+      await addAssignment({
         complaintId: id,
         departmentId: department.id,
         staffId,
         assignedBy: user.id,
         note: note || null,
       });
-      notifyDepartmentStaff({
+      await notifyDepartmentStaff({
         departmentId: department.id,
         complaintId: id,
         type: "assigned",
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         message: `${complaint.complaint_code} · ${complaint.title}`,
       });
       if (staffId) {
-        notifyUser({
+        await notifyUser({
           userId: staffId,
           complaintId: id,
           type: "assigned",
@@ -115,8 +115,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "priority": {
       if (!input.priority) return apiError("Select a priority.");
-      updateComplaintFields(id, { priority: input.priority });
-      notifyUser({
+      await updateComplaintFields(id, { priority: input.priority });
+      await notifyUser({
         userId: complaint.reporter_id,
         complaintId: id,
         type: "priority",
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (input.status === "resolved" && !complaint.resolved_at) fields.resolved_at = nowIso();
       if (input.status === "verified" && !complaint.verified_at) fields.verified_at = nowIso();
       if (input.status === "closed") fields.closed_at = nowIso();
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: input.status,
         actor: user,
@@ -144,18 +144,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           message: `${complaint.complaint_code} is now ${input.status.replaceAll("_", " ")}.`,
         },
       });
-      if (input.status === "verified") awardVerificationPoints(id, user);
+      if (input.status === "verified") await awardVerificationPoints(id, user);
       break;
     }
     case "note": {
       if (note.length < 2) return apiError("Add a note.");
-      updateComplaintFields(id, { admin_notes: note });
+      await updateComplaintFields(id, { admin_notes: note });
       break;
     }
     case "reject": {
       const reason = sanitizeText(input.reason ?? "");
       if (reason.length < 10) return apiError("Add a clear rejection reason (at least 10 characters).");
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: "rejected",
         actor: user,
@@ -170,7 +170,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "verify": {
       if (complaint.status !== "resolved") return apiError("Only resolved reports can be verified.");
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: "verified",
         actor: user,
@@ -181,14 +181,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           message: `${complaint.complaint_code} has been verified. Thank you for helping improve the campus.`,
         },
       });
-      awardVerificationPoints(id, user);
+      await awardVerificationPoints(id, user);
       break;
     }
     case "close": {
       if (!["verified", "resolved"].includes(complaint.status)) {
         return apiError("Only resolved or verified reports can be closed.");
       }
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: "closed",
         actor: user,
@@ -207,7 +207,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!["resolved", "verified", "closed", "rejected"].includes(complaint.status)) {
         return apiError("This report is already open.");
       }
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: "reopened",
         actor: user,
@@ -222,10 +222,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "restore": {
       if (complaint.status !== "archived") return apiError("Only archived reports can be restored.");
-      const archivedFrom = one<{ from_status: string | null }>(
+      const archivedFrom = (await one<{ from_status: string | null }>(
         "SELECT from_status FROM complaint_status_history WHERE complaint_id = ? AND to_status = 'archived' ORDER BY created_at DESC LIMIT 1",
         id,
-      )?.from_status;
+      ))?.from_status;
       const restorableStatuses = [
         "submitted",
         "under_review",
@@ -239,7 +239,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       ];
       const restoredStatus =
         archivedFrom && restorableStatuses.includes(archivedFrom) ? archivedFrom : "under_review";
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: restoredStatus,
         actor: user,
@@ -253,10 +253,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "restore": {
       if (complaint.status !== "archived") return apiError("Only archived reports can be restored.");
-      const archivedFrom = one<{ from_status: string | null }>(
+      const archivedFrom = (await one<{ from_status: string | null }>(
         "SELECT from_status FROM complaint_status_history WHERE complaint_id = ? AND to_status = 'archived' ORDER BY created_at DESC LIMIT 1",
         id,
-      )?.from_status;
+      ))?.from_status;
       const restorableStatuses = [
         "submitted",
         "under_review",
@@ -270,7 +270,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       ];
       const restoredStatus =
         archivedFrom && restorableStatuses.includes(archivedFrom) ? archivedFrom : "under_review";
-      transitionComplaint({
+      await transitionComplaint({
         complaint,
         toStatus: restoredStatus,
         actor: user,
@@ -284,8 +284,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "delete_demo": {
       if (!complaint.is_demo) return apiError("Only demo records can be deleted.", 403);
-      run("DELETE FROM complaints WHERE id = ? AND is_demo = 1", id);
-      logAudit({
+      await run("DELETE FROM complaints WHERE id = ? AND is_demo = 1", id);
+      await logAudit({
         actor: user,
         action: "Deleted a demo complaint",
         entityType: "complaint",
@@ -299,7 +299,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return apiError("Unsupported action.");
   }
 
-  logAudit({
+  await logAudit({
     actor: user,
     action: `Admin complaint action: ${input.action}`,
     entityType: "complaint",

@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const user = auth.user;
   const { id } = await params;
 
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint) return apiError("Report not found.", 404);
   if (complaint.reporter_id !== user.id) return apiError("You can only reopen your own reports.", 403);
   if (!["resolved", "verified", "closed"].includes(complaint.status)) {
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const reason = sanitizeText(parsed.data.reason);
 
-  transitionComplaint({
+  await transitionComplaint({
     complaint,
     toStatus: "reopened",
     actor: user,
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   });
 
   if (complaint.assigned_staff_id) {
-    notifyUser({
+    await notifyUser({
       userId: complaint.assigned_staff_id,
       complaintId: id,
       type: "reopened",
@@ -56,13 +56,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       message: `${complaint.complaint_code}: ${reason.slice(0, 240)}`,
     });
   }
-  notifyAdmins({
+  await notifyAdmins({
     complaintId: id,
     type: "reopened",
     title: "Report reopened by reporter",
     message: `${complaint.complaint_code} · ${reason.slice(0, 200)}`,
   });
-  logAudit({
+  await logAudit({
     actor: user,
     action: "Reopened a report",
     entityType: "complaint",

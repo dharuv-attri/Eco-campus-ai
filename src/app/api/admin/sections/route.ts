@@ -5,6 +5,7 @@ import { run } from "@/lib/db";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { logAudit } from "@/lib/audit";
 import { nowIso } from "@/lib/utils";
+import { revalidateSiteChrome } from "@/lib/revalidate";
 
 export async function POST(req: NextRequest) {
   const originError = enforceSameOrigin(req);
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return apiError(parsed.error.issues[0]?.message || "Check the section configuration.");
 
   for (const section of parsed.data.sections) {
-    run(
+    await run(
       "UPDATE website_sections SET enabled = ?, sort_order = ?, updated_at = ? WHERE key = ?",
       section.enabled ? 1 : 0,
       section.sortOrder,
@@ -30,12 +31,13 @@ export async function POST(req: NextRequest) {
       section.key,
     );
   }
-  logAudit({
+  await logAudit({
     actor: auth.user,
     action: "Updated homepage sections",
     entityType: "settings",
     details: parsed.data.sections.map((section) => `${section.key}:${section.enabled ? "on" : "off"}`).join(", "),
     ip: clientIp(req),
   });
+  revalidateSiteChrome();
   return NextResponse.json({ ok: true });
 }

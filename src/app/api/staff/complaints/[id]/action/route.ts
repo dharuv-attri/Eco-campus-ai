@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const user = auth.user;
   const { id } = await params;
 
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint) return apiError("Report not found.", 404);
   if (!canManageComplaint(user, complaint)) {
     return apiError("This report is not assigned to you or your department.", 403);
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (imageUrls.length) {
     const placeholders = imageUrls.map(() => "?").join(",");
     const storedNames = imageUrls.map((url) => url.replace("/uploads/", ""));
-    const owned = all<{ stored_name: string }>(
+    const owned = await all<{ stored_name: string }>(
       `SELECT stored_name FROM uploaded_files WHERE owner_id = ? AND stored_name IN (${placeholders})`,
       user.id,
       ...storedNames,
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (input.action === "note" || input.action === "request_info") updateType = "note";
 
   if (input.action !== "archive") {
-    run(
+    await run(
       `INSERT INTO staff_updates (id, complaint_id, staff_id, update_type, message, image_url, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       randomUUID(),
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   if (input.action === "archive") {
-    transitionComplaint({
+    await transitionComplaint({
       complaint,
       toStatus: "archived",
       actor: user,
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     });
   } else if (input.action === "start" || input.action === "progress") {
-    transitionComplaint({
+    await transitionComplaint({
       complaint,
       toStatus: "in_progress",
       actor: user,
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
   } else if (input.action === "resolve") {
     for (const url of imageUrls) {
-      run(
+      await run(
         `INSERT INTO complaint_images (id, complaint_id, url, kind, uploaded_by, created_at)
          VALUES (?, ?, ?, 'resolution', ?, ?)`,
         randomUUID(),
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         nowIso(),
       );
     }
-    transitionComplaint({
+    await transitionComplaint({
       complaint,
       toStatus: "resolved",
       actor: user,
@@ -138,14 +138,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         type: "status",
       },
     });
-    notifyAdmins({
+    await notifyAdmins({
       complaintId: id,
       type: "resolution",
       title: "Resolution awaiting verification",
       message: `${complaint.complaint_code} was resolved by ${user.fullName}. Please verify the work.`,
     });
   } else if (input.action === "request_info") {
-    notifyAdmins({
+    await notifyAdmins({
       complaintId: id,
       type: "request_info",
       title: "Staff requested more information",
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
   }
 
-  logAudit({
+  await logAudit({
     actor: user,
     action: `Staff ${input.action.replaceAll("_", " ")}`,
     entityType: "complaint",

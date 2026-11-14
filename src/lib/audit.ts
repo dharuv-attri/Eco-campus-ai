@@ -4,7 +4,7 @@ import { run } from "@/lib/db";
 import { nowIso } from "@/lib/utils";
 import type { SessionUser } from "@/types";
 
-export function logAudit(input: {
+export async function logAudit(input: {
   actor?: SessionUser | null;
   action: string;
   entityType?: string;
@@ -12,7 +12,7 @@ export function logAudit(input: {
   details?: string;
   ip?: string;
 }) {
-  run(
+  await run(
     `INSERT INTO admin_audit_logs (id, actor_id, actor_name, action, entity_type, entity_id, details, ip, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     randomUUID(),

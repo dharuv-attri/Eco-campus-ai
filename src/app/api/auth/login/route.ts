@@ -12,7 +12,7 @@ import type { Role } from "@/types";
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
   const ip = clientIp(req);
-  if (!rateLimit(`login:${ip}`, 20, 15 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`login:${ip}`, 20, 15 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many sign-in attempts. Please wait 15 minutes." }, { status: 429 });
   }
 
@@ -27,10 +27,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "Check your details." }, { status: 400 });
   }
   const { email, password, role } = parsed.data;
-  if (!rateLimit(`login-email:${email}`, 8, 15 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`login-email:${email}`, 8, 15 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many attempts for this account. Please wait." }, { status: 429 });
   }
-
   let supabase;
   try {
     supabase = await createSupabaseClient();
@@ -55,7 +54,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const user = one<{
+  const user = await one<{
     id: string;
     email: string;
     full_name: string;
@@ -109,14 +108,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
-  logAudit({
-    action: "User signed in",
-    entityType: "user",
-    entityId: user.id,
-    details: `${user.role} · ${email}`,
-    ip,
-  });
+  try {
+    await run(
+      "UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
+      nowIso(),
+      user.id,
+    );
+  } catch (updateError) {
+    console.error("Could not update the sign-in timestamp:", updateError);
+  }
+  try {
+    await logAudit({
+      action: "User signed in",
+      entityType: "user",
+      entityId: user.id,
+      details: `${user.role} · ${email}`,
+      ip,
+    });
+  } catch (auditError) {
+    console.error("Could not write the sign-in audit entry:", auditError);
+  }
 
   return NextResponse.json({
     ok: true,

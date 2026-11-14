@@ -19,8 +19,8 @@ export default async function AdminLeaderboardPage({
   const raw = typeof params.period === "string" ? params.period : "all";
   const period: "week" | "month" | "all" = raw === "week" || raw === "month" ? raw : "all";
 
-  const rows = getLeaderboard(period, 100);
-  const departments = getDepartmentLeaderboard();
+  const rows = await getLeaderboard(period, 100);
+  const departments = await getDepartmentLeaderboard();
   const totalPoints = rows.reduce((sum, row) => sum + row.points, 0);
 
   return (

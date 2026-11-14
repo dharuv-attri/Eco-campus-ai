@@ -7,12 +7,13 @@ import { all, one, run } from "@/lib/db";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { logAudit } from "@/lib/audit";
 import { nowIso, sanitizeText, slugify } from "@/lib/utils";
+import { revalidateSiteChrome } from "@/lib/revalidate";
 
-function uniqueSlug(name: string, excludeId?: string) {
+async function uniqueSlug(name: string, excludeId?: string) {
   const base = slugify(name) || "department";
   let slug = base;
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const existing = one<{ id: string }>(
+    const existing = await one<{ id: string }>(
       "SELECT id FROM departments WHERE slug = ? AND id != ?",
       slug,
       excludeId ?? "",
@@ -42,9 +43,9 @@ export async function POST(req: NextRequest) {
   if (!name) return apiError("Department name is required.");
 
   if (input.id) {
-    const existing = one<{ id: string }>("SELECT id FROM departments WHERE id = ?", input.id);
+    const existing = await one<{ id: string }>("SELECT id FROM departments WHERE id = ?", input.id);
     if (!existing) return apiError("Department not found.", 404);
-    run(
+    await run(
       `UPDATE departments SET name = ?, description = ?, email = ?, handles_categories = ?, updated_at = ?
        WHERE id = ?`,
       name,
@@ -54,8 +55,8 @@ export async function POST(req: NextRequest) {
       nowIso(),
       input.id,
     );
-    run("UPDATE users SET department = ? WHERE department_id = ?", name, input.id);
-    logAudit({
+    await run("UPDATE users SET department = ? WHERE department_id = ?", name, input.id);
+    await logAudit({
       actor: auth.user,
       action: "Updated a department",
       entityType: "department",
@@ -63,23 +64,24 @@ export async function POST(req: NextRequest) {
       details: name,
       ip: clientIp(req),
     });
+    revalidateSiteChrome();
     return NextResponse.json({ ok: true, id: input.id });
   }
 
   const id = `dept-${randomUUID().slice(0, 8)}`;
-  run(
+  await run(
     `INSERT INTO departments (id, name, slug, description, handles_categories, email, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     name,
-    uniqueSlug(name),
+    await uniqueSlug(name),
     sanitizeText(input.description) || null,
     JSON.stringify(input.handlesCategories),
     sanitizeText(input.email) || null,
     nowIso(),
     nowIso(),
   );
-  logAudit({
+  await logAudit({
     actor: auth.user,
     action: "Created a department",
     entityType: "department",
@@ -87,6 +89,7 @@ export async function POST(req: NextRequest) {
     details: name,
     ip: clientIp(req),
   });
+  revalidateSiteChrome();
   return NextResponse.json({ ok: true, id }, { status: 201 });
 }
 
@@ -107,7 +110,7 @@ export async function DELETE(req: NextRequest) {
   const parsed = deleteSchema.safeParse(json);
   if (!parsed.success) return apiError("Department ID is required.");
 
-  const open = one<{ count: number }>(
+  const open = await one<{ count: number }>(
     `SELECT COUNT(*) AS count FROM complaints
      WHERE assigned_department_id = ? AND status NOT IN ('closed','rejected','verified')`,
     parsed.data.id,
@@ -115,21 +118,22 @@ export async function DELETE(req: NextRequest) {
   if ((open?.count ?? 0) > 0) {
     return apiError("Reassign open reports before deleting this department.", 409);
   }
-  run("UPDATE users SET department_id = NULL, department = NULL WHERE department_id = ?", parsed.data.id);
-  run("DELETE FROM departments WHERE id = ?", parsed.data.id);
-  logAudit({
+  await run("UPDATE users SET department_id = NULL, department = NULL WHERE department_id = ?", parsed.data.id);
+  await run("DELETE FROM departments WHERE id = ?", parsed.data.id);
+  await logAudit({
     actor: auth.user,
     action: "Deleted a department",
     entityType: "department",
     entityId: parsed.data.id,
     ip: clientIp(req),
   });
+  revalidateSiteChrome();
   return NextResponse.json({ ok: true });
 }
 
 export async function GET() {
   const auth = await authorizeApi(["admin", "super_admin"]);
   if (auth.response) return auth.response;
-  const departments = all("SELECT * FROM departments ORDER BY name ASC");
+  const departments = await all("SELECT * FROM departments ORDER BY name ASC");
   return NextResponse.json({ ok: true, departments });
 }

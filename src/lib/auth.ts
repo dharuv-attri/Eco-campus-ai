@@ -65,14 +65,14 @@ export const getSessionUser = cache(async function getSessionUser(): Promise<Ses
   const email = data.user?.email?.trim().toLowerCase();
   if (!email || !data.user?.email_confirmed_at) return null;
 
-  const row = one<DbUserRow>(
+  const row = await one<DbUserRow>(
     "SELECT * FROM users WHERE lower(email) = ?",
     email,
   );
   if (!row || row.is_demo === 1 || ["suspended", "deleted", "pending"].includes(row.status)) return null;
 
   if (row.email_verified !== 1) {
-    run("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?", nowIso(), row.id);
+    await run("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?", nowIso(), row.id);
     row.email_verified = 1;
   }
   return toSessionUser(row);

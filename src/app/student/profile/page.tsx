@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "My profile" };
 
 export default async function StudentProfilePage() {
   const user = await requireRole(["student"], "/student/profile");
-  const stats = getStudentStats(user.id);
+  const stats = await getStudentStats(user.id);
   return (
     <>
       <PageHeader

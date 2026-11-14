@@ -30,21 +30,24 @@ export const metadata: Metadata = { title: "Admin dashboard" };
 
 export default async function AdminDashboardPage() {
   const user = await requireRole(["admin", "super_admin"], "/admin/dashboard");
-  const stats = getAdminStats();
-  const statusBreakdown = getStatusBreakdown();
-  const categoryBreakdown = getCategoryBreakdown();
-  const monthlyTrend = getMonthlyTrend();
-  const recent = listComplaints({ limit: 6 });
-  const pendingStaff = all<PublicUser>(
-    "SELECT * FROM users WHERE role = 'staff' AND status = 'pending' ORDER BY created_at DESC LIMIT 5",
-  );
-  const audit = all<{
-    id: string;
-    actor_name: string | null;
-    action: string;
-    entity_type: string | null;
-    created_at: string;
-  }>("SELECT id, actor_name, action, entity_type, created_at FROM admin_audit_logs ORDER BY created_at DESC LIMIT 6");
+  const [stats, statusBreakdown, categoryBreakdown, monthlyTrend, recent, pendingStaff, audit] =
+    await Promise.all([
+      getAdminStats(),
+      getStatusBreakdown(),
+      getCategoryBreakdown(),
+      getMonthlyTrend(),
+      listComplaints({ limit: 6 }),
+      all<PublicUser>(
+        "SELECT * FROM users WHERE role = 'staff' AND status = 'pending' ORDER BY created_at DESC LIMIT 5",
+      ),
+      all<{
+        id: string;
+        actor_name: string | null;
+        action: string;
+        entity_type: string | null;
+        created_at: string;
+      }>("SELECT id, actor_name, action, entity_type, created_at FROM admin_audit_logs ORDER BY created_at DESC LIMIT 6"),
+    ]);
 
   return (
     <>

@@ -12,7 +12,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const announcement = getAnnouncementBySlug(slug);
+  const announcement = await getAnnouncementBySlug(slug);
   if (!announcement) return { title: "Announcement not found" };
   return { title: announcement.title, description: announcement.excerpt || undefined };
 }
@@ -23,10 +23,12 @@ export default async function AnnouncementDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const announcement = getAnnouncementBySlug(slug);
+  const announcement = await getAnnouncementBySlug(slug);
   if (!announcement) notFound();
 
-  const others = listPublishedAnnouncements(10).filter((item) => item.id !== announcement.id).slice(0, 4);
+  const others = (await listPublishedAnnouncements(10))
+    .filter((item) => item.id !== announcement.id)
+    .slice(0, 4);
   const paragraphs = announcement.content.split(/\n\s*\n/).filter(Boolean);
 
   return (

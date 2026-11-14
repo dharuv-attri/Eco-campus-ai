@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   if (auth.response) return auth.response;
   const user = auth.user;
 
-  if (!rateLimit(`quiz:${user.id}:${clientIp(req)}`, 20, 60 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`quiz:${user.id}:${clientIp(req)}`, 20, 60 * 60 * 1000)).allowed) {
     return apiError("Too many quiz attempts. Please try again later.", 429);
   }
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     return apiError("Please answer every question.");
   }
 
-  const previous = one<{ score: number; total: number; points_awarded: number }>(
+  const previous = await one<{ score: number; total: number; points_awarded: number }>(
     "SELECT score, total, points_awarded FROM quiz_attempts WHERE quiz_id = ? AND user_id = ?",
     quiz.id,
     user.id,
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const points = passed ? quiz.points : 0;
 
   if (passed) {
-    run(
+    await run(
       `INSERT INTO quiz_attempts (id, quiz_id, user_id, score, total, points_awarded, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       randomUUID(),
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     );
   }
   if (points > 0) {
-    run(
+    await run(
       `INSERT OR IGNORE INTO leaderboard_points (id, user_id, points, reason, quiz_id, is_demo, created_at)
        VALUES (?, ?, ?, ?, ?, 0, ?)`,
       randomUUID(),
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
       nowIso(),
     );
   }
-  logAudit({
+  await logAudit({
     actor: user,
     action: "Completed an environmental awareness quiz",
     entityType: "quiz",

@@ -8,7 +8,7 @@ import { appBaseUrlForRequest } from "@/lib/email";
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
   const ip = clientIp(req);
-  if (!rateLimit(`otp-request:${ip}`, 8, 15 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`otp-request:${ip}`, 8, 15 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many code requests. Please wait 15 minutes." }, { status: 429 });
   }
 
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || "Check your details." }, { status: 400 });
   }
   const { email, purpose } = parsed.data;
-  if (!rateLimit(`otp-email:${email}`, 4, 10 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`otp-email:${email}`, 4, 10 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many codes requested for this account. Please wait." }, { status: 429 });
   }
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const user = one<{ email: string; email_verified: number; status: string; is_demo: number }>(
+  const user = await one<{ email: string; email_verified: number; status: string; is_demo: number }>(
     "SELECT email, email_verified, status, is_demo FROM users WHERE lower(email) = ?",
     email,
   );

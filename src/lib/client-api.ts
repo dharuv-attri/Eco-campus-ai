@@ -30,16 +30,16 @@ export async function apiRequest<T = Record<string, unknown>>(
   return data;
 }
 
-export function postJson<T = Record<string, unknown>>(url: string, body: unknown) {
-  return apiRequest<T>(url, { method: "POST", body: JSON.stringify(body) });
+export async function postJson<T = Record<string, unknown>>(url: string, body: unknown) {
+  return await apiRequest<T>(url, { method: "POST", body: JSON.stringify(body) });
 }
 
-export function patchJson<T = Record<string, unknown>>(url: string, body: unknown) {
-  return apiRequest<T>(url, { method: "PATCH", body: JSON.stringify(body) });
+export async function patchJson<T = Record<string, unknown>>(url: string, body: unknown) {
+  return await apiRequest<T>(url, { method: "PATCH", body: JSON.stringify(body) });
 }
 
-export function deleteJson<T = Record<string, unknown>>(url: string, body?: unknown) {
-  return apiRequest<T>(url, {
+export async function deleteJson<T = Record<string, unknown>>(url: string, body?: unknown) {
+  return await apiRequest<T>(url, {
     method: "DELETE",
     body: body === undefined ? undefined : JSON.stringify(body),
   });

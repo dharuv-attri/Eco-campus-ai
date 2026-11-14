@@ -19,7 +19,7 @@ export default async function ReportProblemPage() {
     getSessionUser(),
     Promise.resolve(getSettings()),
   ]);
-  const locations = listCampusLocations(false);
+  const locations = await listCampusLocations(false);
 
   return (
     <div className="relative overflow-hidden py-12 sm:py-16">

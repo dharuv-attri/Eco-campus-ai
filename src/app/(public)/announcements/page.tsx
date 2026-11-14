@@ -11,8 +11,8 @@ export const metadata: Metadata = {
   description: "Platform announcements, campus environmental updates and verified initiative notices.",
 };
 
-export default function AnnouncementsPage() {
-  const announcements = listPublishedAnnouncements(50);
+export default async function AnnouncementsPage() {
+  const announcements = await listPublishedAnnouncements(50);
 
   return (
     <>

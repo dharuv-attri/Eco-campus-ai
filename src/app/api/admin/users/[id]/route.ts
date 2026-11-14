@@ -18,7 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const actor = auth.user;
   const { id } = await params;
 
-  const target = one<{
+  const target = await one<{
     id: string;
     email: string;
     full_name: string;
@@ -55,8 +55,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   switch (input.action) {
     case "approve": {
       if (target.status !== "pending") return apiError("This account is not awaiting approval.");
-      run("UPDATE users SET status = 'active', updated_at = ? WHERE id = ?", nowIso(), id);
-      notifyUser({
+      await run("UPDATE users SET status = 'active', updated_at = ? WHERE id = ?", nowIso(), id);
+      await notifyUser({
         userId: id,
         type: "account",
         title: "Your staff account is approved",
@@ -66,22 +66,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     case "reject": {
       if (target.status !== "pending") return apiError("Only pending accounts can be rejected.");
-      run("UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?", nowIso(), id);
+      await run("UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?", nowIso(), id);
       break;
     }
     case "suspend": {
       if (target.status === "suspended") return apiError("This account is already suspended.");
-      run("UPDATE users SET status = 'suspended', updated_at = ? WHERE id = ?", nowIso(), id);
+      await run("UPDATE users SET status = 'suspended', updated_at = ? WHERE id = ?", nowIso(), id);
       break;
     }
     case "reactivate": {
       if (!["suspended", "deleted"].includes(target.status)) return apiError("This account is already active.");
-      run("UPDATE users SET status = 'active', updated_at = ? WHERE id = ?", nowIso(), id);
+      await run("UPDATE users SET status = 'active', updated_at = ? WHERE id = ?", nowIso(), id);
       break;
     }
     case "remove": {
-      const removal = transaction(() => {
-        const current = one<{ role: Role; status: string }>(
+      const removal = await transaction(async () => {
+        const current = await one<{ role: Role; status: string }>(
           "SELECT role, status FROM users WHERE id = ?",
           id,
         );
@@ -94,13 +94,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           return "forbidden";
         }
         if (current.role === "super_admin" && current.status === "active") {
-          const remaining = one<{ count: number }>(
+          const remaining = await one<{ count: number }>(
             "SELECT COUNT(*) AS count FROM users WHERE role = 'super_admin' AND status = 'active' AND id != ?",
             id,
           );
           if ((remaining?.count ?? 0) === 0) return "last_super_admin";
         }
-        run("UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?", nowIso(), id);
+        await run("UPDATE users SET status = 'deleted', updated_at = ? WHERE id = ?", nowIso(), id);
         return "removed";
       });
       if (removal === "missing") return apiError("User not found.", 404);
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return apiError("Only a super administrator can grant administrator roles.", 403);
       }
       if (target.role === "super_admin" && input.role !== "super_admin") {
-        const remaining = one<{ count: number }>(
+        const remaining = await one<{ count: number }>(
           "SELECT COUNT(*) AS count FROM users WHERE role = 'super_admin' AND status = 'active' AND id != ?",
           id,
         );
@@ -127,13 +127,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           return apiError("At least one active super administrator is required.", 400);
         }
       }
-      run(
+      await run(
         "UPDATE users SET role = ?, updated_at = ? WHERE id = ?",
         input.role,
         nowIso(),
         id,
       );
-      notifyUser({
+      await notifyUser({
         userId: id,
         type: "account",
         title: "Your account role changed",
@@ -145,14 +145,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (target.role !== "staff") return apiError("Departments can only be assigned to staff accounts.");
       let departmentName: string | null = null;
       if (input.departmentId) {
-        const department = one<{ id: string; name: string }>(
+        const department = await one<{ id: string; name: string }>(
           "SELECT id, name FROM departments WHERE id = ?",
           input.departmentId,
         );
         if (!department) return apiError("Department not found.");
         departmentName = department.name;
       }
-      run(
+      await run(
         "UPDATE users SET department_id = ?, department = ?, updated_at = ? WHERE id = ?",
         input.departmentId || null,
         departmentName,
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return apiError("Unsupported action.");
   }
 
-  logAudit({
+  await logAudit({
     actor,
     action: `User administration: ${input.action}`,
     entityType: "user",

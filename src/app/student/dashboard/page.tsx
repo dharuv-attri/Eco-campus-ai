@@ -18,7 +18,7 @@ import { ComplaintCard } from "@/components/complaints/complaint-card";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button, LinkButton } from "@/components/ui/button";
 import { EmptyState, StatCard } from "@/components/ui/misc";
-import { getLeaderboard, getStudentStats } from "@/lib/analytics";
+import { getUserRank, getStudentStats } from "@/lib/analytics";
 import { listComplaints } from "@/lib/complaints";
 import { all, one } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
@@ -30,29 +30,35 @@ export const metadata: Metadata = { title: "Student dashboard" };
 
 export default async function StudentDashboard() {
   const user = await requireRole(["student"], "/student/dashboard");
-  const settings = getSettings();
-  const stats = getStudentStats(user.id);
-  const recent = listComplaints({ reporterId: user.id, limit: 3 });
-  const notifications = all<Notification>(
-    "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 4",
-    user.id,
-  );
-  const leaderboard = getLeaderboard("all", 200);
-  const myRank = leaderboard.find((row) => row.user_id === user.id);
-  const pointsHistory = all<{ id: string; points: number; reason: string; created_at: string }>(
-    "SELECT id, points, reason, created_at FROM leaderboard_points WHERE user_id = ? ORDER BY created_at DESC LIMIT 3",
-    user.id,
-  );
-  const openReports = listComplaints({ reporterId: user.id, limit: 3 }).filter(
-    (item) => !["closed", "rejected", "verified"].includes(item.status),
-  );
-  const latestResolved = one<{ id: string; complaint_code: string; title: string; rating: number | null }>(
-    `SELECT c.id, c.complaint_code, c.title, f.rating
-     FROM complaints c LEFT JOIN complaint_feedback f ON f.complaint_id = c.id
-     WHERE c.reporter_id = ? AND c.status IN ('resolved','verified','closed')
-     ORDER BY COALESCE(c.resolved_at, c.updated_at) DESC LIMIT 1`,
-    user.id,
-  );
+
+  // Every read is independent, so run them concurrently instead of stacking
+  // eight sequential round-trips to the database.
+  const [settings, stats, recentReports, notifications, rank, pointsHistory, latestResolved] =
+    await Promise.all([
+      getSettings(),
+      getStudentStats(user.id),
+      listComplaints({ reporterId: user.id, limit: 6 }),
+      all<Notification>(
+        "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 4",
+        user.id,
+      ),
+      getUserRank(user.id),
+      all<{ id: string; points: number; reason: string; created_at: string }>(
+        "SELECT id, points, reason, created_at FROM leaderboard_points WHERE user_id = ? ORDER BY created_at DESC LIMIT 3",
+        user.id,
+      ),
+      one<{ id: string; complaint_code: string; title: string; rating: number | null }>(
+        `SELECT c.id, c.complaint_code, c.title, f.rating
+         FROM complaints c LEFT JOIN complaint_feedback f ON f.complaint_id = c.id
+         WHERE c.reporter_id = ? AND c.status IN ('resolved','verified','closed')
+         ORDER BY COALESCE(c.resolved_at, c.updated_at) DESC LIMIT 1`,
+        user.id,
+      ),
+    ]);
+  const recent = recentReports.slice(0, 3);
+  const openReports = recentReports
+    .filter((item) => !["closed", "rejected", "verified"].includes(item.status))
+    .slice(0, 3);
 
   return (
     <>
@@ -74,7 +80,7 @@ export default async function StudentDashboard() {
         <StatCard
           label="Green points"
           value={formatNumber(stats.points)}
-          hint={myRank ? `Rank #${myRank.rank} on the leaderboard` : "Earn points for verified reports"}
+          hint={rank ? `Rank #${rank} on the leaderboard` : "Earn points for verified reports"}
           icon={Trophy}
           tone="violet"
         />

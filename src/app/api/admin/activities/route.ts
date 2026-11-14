@@ -8,13 +8,14 @@ import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http"
 import { notifyUser } from "@/lib/notifications";
 import { logAudit } from "@/lib/audit";
 import { nowIso, sanitizeText } from "@/lib/utils";
+import { revalidatePublicContent } from "@/lib/revalidate";
 
 export async function GET() {
   const auth = await authorizeApi(["admin", "super_admin"]);
   if (auth.response) return auth.response;
   return NextResponse.json({
     ok: true,
-    activities: all(
+    activities: await all(
       `SELECT ga.*,
         (SELECT COUNT(*) FROM leaderboard_points lp WHERE lp.activity_id = ga.id) AS awarded
        FROM green_activities ga ORDER BY ga.created_at DESC`,
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
   const input = parsed.data;
 
   const id = randomUUID();
-  run(
+  await run(
     `INSERT INTO green_activities (id, title, description, points, activity_date, verified, is_demo, created_by, created_at)
      VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)`,
     id,
@@ -53,12 +54,12 @@ export async function POST(req: NextRequest) {
 
   let awarded = 0;
   for (const userId of input.userIds) {
-    const student = all<{ id: string }>(
+    const student = (await all<{ id: string }>(
       "SELECT id FROM users WHERE id = ? AND role = 'student' AND status = 'active'",
       userId,
-    )[0];
+    ))[0];
     if (!student) continue;
-    run(
+    await run(
       `INSERT INTO leaderboard_points (id, user_id, points, reason, activity_id, is_demo, created_at)
        VALUES (?, ?, ?, ?, ?, 0, ?)`,
       randomUUID(),
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
       id,
       nowIso(),
     );
-    notifyUser({
+    await notifyUser({
       userId: student.id,
       type: "points",
       title: "Green activity verified",
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
     awarded += 1;
   }
 
-  logAudit({
+  await logAudit({
     actor: auth.user,
     action: "Created a verified green activity",
     entityType: "activity",
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
     ip: clientIp(req),
   });
 
+  revalidatePublicContent();
   return NextResponse.json({ ok: true, id, awarded }, { status: 201 });
 }
 
@@ -104,14 +106,15 @@ export async function DELETE(req: NextRequest) {
   }
   const parsed = deleteSchema.safeParse(json);
   if (!parsed.success) return apiError("Activity ID is required.");
-  run("DELETE FROM leaderboard_points WHERE activity_id = ?", parsed.data.id);
-  run("DELETE FROM green_activities WHERE id = ?", parsed.data.id);
-  logAudit({
+  await run("DELETE FROM leaderboard_points WHERE activity_id = ?", parsed.data.id);
+  await run("DELETE FROM green_activities WHERE id = ?", parsed.data.id);
+  await logAudit({
     actor: auth.user,
     action: "Deleted a green activity",
     entityType: "activity",
     entityId: parsed.data.id,
     ip: clientIp(req),
   });
+  revalidatePublicContent();
   return NextResponse.json({ ok: true });
 }

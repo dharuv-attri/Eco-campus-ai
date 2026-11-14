@@ -33,9 +33,9 @@ export default async function AdminComplaintsPage({
     priority: get("priority") || undefined,
     demo: demo === "1" ? true : demo === "0" ? false : undefined,
   };
-  const reports = listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
-  const total = countComplaints(filters);
-  const statusCounts = getStatusCounts({});
+  const reports = await listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  const total = await countComplaints(filters);
+  const statusCounts = await getStatusCounts({});
   const allCount = Object.values(statusCounts).reduce((sum, value) => sum + value, 0);
 
   const demoModes = [

@@ -36,15 +36,15 @@ export default async function AdminReportsPage({
     to: to ? `${to}T23:59:59.999Z` : undefined,
   };
 
-  const stats = getAdminStats();
-  const statusBreakdown = getStatusBreakdown();
-  const categoryBreakdown = getCategoryBreakdown();
-  const departmentBreakdown = getDepartmentBreakdown();
-  const monthlyTrend = getMonthlyTrend();
-  const performance = getResolutionPerformance();
+  const stats = await getAdminStats();
+  const statusBreakdown = await getStatusBreakdown();
+  const categoryBreakdown = await getCategoryBreakdown();
+  const departmentBreakdown = await getDepartmentBreakdown();
+  const monthlyTrend = await getMonthlyTrend();
+  const performance = await getResolutionPerformance();
 
-  const filtered = listComplaints({ ...rangeFilters, limit: 200 });
-  const filteredCount = countComplaints(rangeFilters);
+  const filtered = await listComplaints({ ...rangeFilters, limit: 200 });
+  const filteredCount = await countComplaints(rangeFilters);
   const rows = filtered.map((complaint) => ({
     code: complaint.complaint_code,
     title: complaint.title,

@@ -22,8 +22,8 @@ interface AttemptRow {
 
 export default async function StudentGreenActionsPage() {
   const user = await requireRole(["student"], "/student/green-actions");
-  const stats = getStudentStats(user.id);
-  const attemptRows = all<AttemptRow>(
+  const stats = await getStudentStats(user.id);
+  const attemptRows = await all<AttemptRow>(
     "SELECT quiz_id, score, total, points_awarded FROM quiz_attempts WHERE user_id = ?",
     user.id,
   );
@@ -33,11 +33,11 @@ export default async function StudentGreenActionsPage() {
       { score: row.score, total: row.total, points_awarded: row.points_awarded },
     ]),
   );
-  const history = all<{ id: string; points: number; reason: string; created_at: string }>(
+  const history = await all<{ id: string; points: number; reason: string; created_at: string }>(
     "SELECT id, points, reason, created_at FROM leaderboard_points WHERE user_id = ? ORDER BY created_at DESC LIMIT 20",
     user.id,
   );
-  const verifiedActivities = all<{ id: string; title: string; points: number; activity_date: string | null }>(
+  const verifiedActivities = await all<{ id: string; title: string; points: number; activity_date: string | null }>(
     `SELECT ga.id, ga.title, lp.points, ga.activity_date
      FROM leaderboard_points lp JOIN green_activities ga ON ga.id = lp.activity_id
      WHERE lp.user_id = ? ORDER BY ga.activity_date DESC, lp.created_at DESC LIMIT 6`,

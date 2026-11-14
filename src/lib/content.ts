@@ -29,33 +29,34 @@ export interface Article {
   updated_at: string;
 }
 
-export function listPublishedAnnouncements(limit = 30) {
-  return all<Announcement>(
+export async function listPublishedAnnouncements(limit = 30) {
+  return await all<Announcement>(
     "SELECT * FROM announcements WHERE published = 1 ORDER BY created_at DESC LIMIT ?",
     limit,
   );
 }
 
-export function getAnnouncementBySlug(slug: string) {
-  return one<Announcement>("SELECT * FROM announcements WHERE slug = ? AND published = 1", slug);
+export async function getAnnouncementBySlug(slug: string) {
+  return await one<Announcement>("SELECT * FROM announcements WHERE slug = ? AND published = 1", slug);
 }
 
-export function listPublishedArticles(limit = 30) {
-  return all<Article>(
+export async function listPublishedArticles(limit = 30) {
+  return await all<Article>(
     "SELECT * FROM environmental_articles WHERE published = 1 ORDER BY created_at DESC LIMIT ?",
     limit,
   );
 }
 
-export function getArticleBySlug(slug: string) {
-  return one<Article>("SELECT * FROM environmental_articles WHERE slug = ? AND published = 1", slug);
+export async function getArticleBySlug(slug: string) {
+  return await one<Article>("SELECT * FROM environmental_articles WHERE slug = ? AND published = 1", slug);
 }
 
-export function listCampusLocations(onlyWithPins = false) {
+export async function listCampusLocations(onlyWithPins = false) {
   const where = onlyWithPins ? "WHERE lat IS NOT NULL AND lng IS NOT NULL" : "";
-  return all<CampusLocation>(
+  const locations = await all<CampusLocation>(
     `SELECT * FROM campus_locations ${where} ORDER BY verified DESC, name ASC`,
-  ).map((location) => ({
+  );
+  return locations.map((location) => ({
     id: location.id,
     name: location.name,
     category: location.category,
@@ -70,14 +71,14 @@ export function listCampusLocations(onlyWithPins = false) {
   }));
 }
 
-export function getVerifiedLocationsWithPins() {
-  return all<CampusLocation>(
+export async function getVerifiedLocationsWithPins() {
+  return await all<CampusLocation>(
     "SELECT * FROM campus_locations WHERE lat IS NOT NULL AND lng IS NOT NULL AND verified = 1 ORDER BY name ASC",
   );
 }
 
-export function listMapIssues(limit = 200) {
-  return all<{
+export async function listMapIssues(limit = 200) {
+  return await all<{
     id: string;
     complaint_code: string;
     title: string;
@@ -100,8 +101,9 @@ export function listMapIssues(limit = 200) {
   );
 }
 
-export function countPublishedArticles() {
-  return one<{ count: number }>(
+export async function countPublishedArticles() {
+  const row = await one<{ count: number }>(
     "SELECT COUNT(*) AS count FROM environmental_articles WHERE published = 1",
-  )?.count ?? 0;
+  );
+  return row?.count ?? 0;
 }

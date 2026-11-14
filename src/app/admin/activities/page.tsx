@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Green activities" };
 
 export default async function AdminActivitiesPage() {
   await requireRole(["admin", "super_admin"], "/admin/activities");
-  const activities = all<{
+  const activities = await all<{
     id: string;
     title: string;
     description: string | null;
@@ -24,7 +24,7 @@ export default async function AdminActivitiesPage() {
      FROM green_activities ga
      ORDER BY ga.created_at DESC`,
   );
-  const students = all<{ id: string; full_name: string; email: string; department: string | null }>(
+  const students = await all<{ id: string; full_name: string; email: string; department: string | null }>(
     "SELECT id, full_name, email, department FROM users WHERE role = 'student' AND status = 'active' ORDER BY full_name ASC",
   );
 

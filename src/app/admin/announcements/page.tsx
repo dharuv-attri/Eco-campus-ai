@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Announcements" };
 
 export default async function AdminAnnouncementsPage() {
   await requireRole(["admin", "super_admin"], "/admin/announcements");
-  const announcements = all<Announcement>("SELECT * FROM announcements ORDER BY created_at DESC");
+  const announcements = await all<Announcement>("SELECT * FROM announcements ORDER BY created_at DESC");
 
   return (
     <>

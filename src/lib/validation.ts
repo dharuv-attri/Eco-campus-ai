@@ -33,6 +33,14 @@ export const forgotSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
 });
 
+export const recoveryVerifySchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter a valid email address."),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
+});
+
 export const otpRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
   purpose: z.enum(["login", "verify"]),
@@ -41,7 +49,7 @@ export const otpRequestSchema = z.object({
 
 export const otpVerifySchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
-  code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
+  code: z.string().trim().regex(/^\d{6,10}$/, "Enter the numeric code from your email."),
   purpose: z.enum(["login", "verify"]),
   role: z.enum(["student", "staff", "admin"]).optional(),
 });

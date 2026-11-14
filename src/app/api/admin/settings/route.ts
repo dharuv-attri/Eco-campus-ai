@@ -6,6 +6,7 @@ import { setSetting } from "@/lib/settings";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { logAudit } from "@/lib/audit";
 import { safeImageUrl, sanitizeText } from "@/lib/utils";
+import { revalidateSiteChrome } from "@/lib/revalidate";
 
 export async function POST(req: NextRequest) {
   const originError = enforceSameOrigin(req);
@@ -48,11 +49,11 @@ export async function POST(req: NextRequest) {
       if (!Number.isFinite(number) || number < -180 || number > 180) return apiError("Map longitude is invalid.");
       value = String(number);
     }
-    setSetting(key, value);
+    await setSetting(key, value);
     changed.push(key);
   }
 
-  logAudit({
+  await logAudit({
     actor: auth.user,
     action: "Updated website settings",
     entityType: "settings",
@@ -60,5 +61,6 @@ export async function POST(req: NextRequest) {
     ip: clientIp(req),
   });
 
+  revalidateSiteChrome();
   return NextResponse.json({ ok: true, changed: changed.length });
 }

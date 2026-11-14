@@ -25,14 +25,19 @@ export const metadata: Metadata = { title: "Staff dashboard" };
 
 export default async function StaffDashboard() {
   const user = await requireRole(["staff"], "/staff/dashboard");
-  const stats = getStaffStats(user);
   const access = { userId: user.id, departmentId: user.departmentId };
-  const assigned = listComplaints({ staffAccess: access, excludeArchived: true, limit: 5 });
-  const openAssigned = assigned.filter((item) => !["resolved", "verified", "closed", "rejected"].includes(item.status));
-  const myReports = listComplaints({ reporterId: user.id, limit: 3 });
-  const notifications = all<Notification>(
-    "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 5",
-    user.id,
+  const [stats, assigned, myReports, notifications, directAssignments] = await Promise.all([
+    getStaffStats(user),
+    listComplaints({ staffAccess: access, excludeArchived: true, limit: 5 }),
+    listComplaints({ reporterId: user.id, limit: 3 }),
+    all<Notification>(
+      "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 5",
+      user.id,
+    ),
+    countComplaints({ staffId: user.id }),
+  ]);
+  const openAssigned = assigned.filter(
+    (item) => !["resolved", "verified", "closed", "rejected"].includes(item.status),
   );
 
   return (
@@ -166,7 +171,7 @@ export default async function StaffDashboard() {
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-ink-400">Direct assignments</dt>
-                <dd className="text-right font-medium">{formatNumber(countComplaints({ staffId: user.id }))}</dd>
+                <dd className="text-right font-medium">{formatNumber(directAssignments)}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-ink-400">Role</dt>

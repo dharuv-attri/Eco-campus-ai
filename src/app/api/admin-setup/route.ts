@@ -22,8 +22,8 @@ function matchesSetupToken(provided: string, configured: string) {
   );
 }
 
-function releaseSetupClaim(claim: string) {
-  const result = run(
+async function releaseSetupClaim(claim: string) {
+  const result = await run(
     "DELETE FROM website_settings WHERE key = ? AND value = ?",
     SETUP_STATE_KEY,
     claim,
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   const ip = clientIp(req);
 
-  if (!rateLimit(`admin-setup:${ip}`, 5, 15 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`admin-setup:${ip}`, 5, 15 * 60 * 1000)).allowed) {
     return apiError("Too many setup attempts. Please wait 15 minutes.", 429);
   }
 
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (
-    one<{ value: string }>(
+    await one<{ value: string }>(
       "SELECT value FROM website_settings WHERE key = ?",
       SETUP_STATE_KEY,
     )
@@ -102,14 +102,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (
-    one(
+    await one(
       "SELECT id FROM users WHERE role = 'admin' AND is_demo = 0 AND status != 'deleted' LIMIT 1",
     )
   ) {
     return apiError("A non-demo Admin account already exists.", 409);
   }
 
-  if (one("SELECT id FROM users WHERE lower(email) = ?", email)) {
+  if (await one("SELECT id FROM users WHERE lower(email) = ?", email)) {
     return apiError(
       "An EcoCampus account with this email already exists.",
       409,
@@ -131,8 +131,9 @@ export async function POST(req: NextRequest) {
 
   const claim = `pending:${randomUUID()}`;
 
-  const claimResult = run(
-    "INSERT OR IGNORE INTO website_settings (key, value, updated_at) VALUES (?, ?, ?)",
+  const claimResult = await run(
+    `INSERT INTO website_settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (key) DO NOTHING`,
     SETUP_STATE_KEY,
     claim,
     nowIso(),
@@ -156,8 +157,8 @@ export async function POST(req: NextRequest) {
         emailRedirectTo: `${appBaseUrlForRequest(req.nextUrl)}/api/auth/google/callback?next=/login`,
       },
     })
-    .catch((authError: unknown) => {
-      releaseSetupClaim(claim);
+    .catch(async (authError: unknown) => {
+      await releaseSetupClaim(claim);
 
       console.error(
         "Supabase Auth request failed during first Admin setup:",
@@ -177,7 +178,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = signupResult;
 
   if (error) {
-    releaseSetupClaim(claim);
+    await releaseSetupClaim(claim);
     return apiError(
       error.message || "Supabase could not create the Admin account.",
       400,
@@ -185,7 +186,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!data.user?.email || data.user.identities?.length === 0) {
-    releaseSetupClaim(claim);
+    await releaseSetupClaim(claim);
     return apiError(
       "An account with this email already exists in Supabase Auth.",
       409,
@@ -198,8 +199,8 @@ export async function POST(req: NextRequest) {
   const verified = data.user.email_confirmed_at ? 1 : 0;
 
   try {
-    transaction(() => {
-      run(
+    await transaction(async () => {
+      await run(
         `INSERT INTO users (
           id, email, password_hash, role, full_name,
           email_verified, status, provider, is_demo,
@@ -214,7 +215,7 @@ export async function POST(req: NextRequest) {
         nowIso(),
       );
 
-      const completed = run(
+      const completed = await run(
         "UPDATE website_settings SET value = 'complete', updated_at = ? WHERE key = ? AND value = ?",
         nowIso(),
         SETUP_STATE_KEY,
@@ -227,7 +228,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      logAudit({
+      await logAudit({
         actor: currentUser,
         action: "First Admin account created",
         entityType: "user",

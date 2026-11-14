@@ -33,7 +33,7 @@ export function apiOk<T extends Record<string, unknown>>(data: T = {} as T, stat
 }
 
 export async function getApiUser(): Promise<SessionUser | null> {
-  return getSessionUser();
+  return await getSessionUser();
 }
 
 export async function authorizeApi(
@@ -57,37 +57,47 @@ export function enforceSameOrigin(req: NextRequest) {
 /**
  * Persistent sliding-window rate limiter. Keys should include the client IP and
  * the action bucket (e.g. `login:1.2.3.4`).
+ *
+ * The count and the insert happen in a single statement so every limited action
+ * costs exactly one database round-trip instead of three.
  */
-export function rateLimit(key: string, limit: number, windowMs: number) {
+export async function rateLimit(key: string, limit: number, windowMs: number) {
   const since = new Date(Date.now() - windowMs).toISOString();
-  const row = one<{ count: number }>(
-    "SELECT COUNT(*) AS count FROM rate_limit_events WHERE bucket = ? AND created_at > ?",
+  const row = await one<{ count: number; inserted: number }>(
+    `WITH recent AS (
+       SELECT COUNT(*)::int AS count
+       FROM rate_limit_events
+       WHERE bucket = ? AND created_at > ?
+     ), inserted AS (
+       INSERT INTO rate_limit_events (id, bucket, created_at)
+       SELECT ?, ?, ? WHERE (SELECT count FROM recent) < ?
+       RETURNING 1
+     )
+     SELECT (SELECT count FROM recent) AS count,
+            (SELECT COUNT(*)::int FROM inserted) AS inserted`,
     key,
     since,
-  );
-  if ((row?.count ?? 0) >= limit) {
-    return { allowed: false, retryAfterMs: windowMs };
-  }
-  run(
-    "INSERT INTO rate_limit_events (id, bucket, created_at) VALUES (?, ?, ?)",
     randomUUID(),
     key,
     nowIso(),
+    limit,
   );
-  if (Math.random() < 0.03) {
+  const allowed = (row?.inserted ?? 0) > 0;
+  if (allowed && Math.random() < 0.03) {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    run("DELETE FROM rate_limit_events WHERE created_at < ?", cutoff);
+    // Housekeeping must never add latency to the user's request.
+    void run("DELETE FROM rate_limit_events WHERE created_at < ?", cutoff).catch(() => undefined);
   }
-  return { allowed: true, retryAfterMs: 0 };
+  return { allowed, retryAfterMs: allowed ? 0 : windowMs };
 }
 
-export function cleanupRateLimits() {
+export async function cleanupRateLimits() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const rows = all<{ id: string }>(
+  const rows = await all<{ id: string }>(
     "SELECT id FROM rate_limit_events WHERE created_at < ? LIMIT 100",
     cutoff,
   );
-  for (const row of rows) run("DELETE FROM rate_limit_events WHERE id = ?", row.id);
+  for (const row of rows) await run("DELETE FROM rate_limit_events WHERE id = ?", row.id);
 }
 
 export async function readJson<T>(req: NextRequest): Promise<T | null> {

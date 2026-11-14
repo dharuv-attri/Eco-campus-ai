@@ -12,7 +12,7 @@ import type { Role } from "@/types";
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
   const ip = clientIp(req);
-  if (!rateLimit(`otp-verify:${ip}`, 15, 15 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`otp-verify:${ip}`, 15, 15 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many attempts. Please wait 15 minutes." }, { status: 429 });
   }
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const user = one<{
+  const user = await one<{
     id: string;
     email: string;
     role: Role;
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     await supabase.auth.signOut({ scope: "local" });
     return NextResponse.json({ error: "Demo profiles cannot sign in." }, { status: 403 });
   }
-  run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
+  await run("UPDATE users SET email_verified = 1, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?", nowIso(), user.id);
   if (purpose === "login" && !matchesLoginRole(user.role, role)) {
     const { error } = await supabase.auth.signOut({ scope: "local" });
     if (error) console.error("Could not clear a role-mismatched OTP session:", error.message);
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       console.error("Could not clear the session after email verification:", error.message);
       return NextResponse.json({ error: "Email verified, but sign-out failed. Please sign out before continuing." }, { status: 500 });
     }
-    logAudit({
+    await logAudit({
       action: "Email verified",
       entityType: "user",
       entityId: user.id,
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  logAudit({
+  await logAudit({
     action: "User signed in (one-time code)",
     entityType: "user",
     entityId: user.id,

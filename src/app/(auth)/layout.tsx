@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ArrowLeft, ShieldCheck, Sparkles, Leaf } from "lucide-react";
 import { Brand } from "@/components/brand";
@@ -7,9 +8,19 @@ import { getSessionUser } from "@/lib/auth";
 import { ROLE_HOME, SITE } from "@/lib/constants";
 import { getSettings } from "@/lib/settings";
 
+/**
+ * Password-recovery pages must stay reachable even when a session exists.
+ * The recovery link from Supabase establishes a temporary session before the
+ * user has chosen a new password, so redirecting signed-in visitors away from
+ * these pages would bounce them to the dashboard and break the reset flow.
+ */
+const RECOVERY_PATHS = new Set(["/forgot-password", "/reset-password"]);
+
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
+  const pathHeader = (await headers()).get("x-ecocampus-path") ?? "";
+  const isRecoveryPage = RECOVERY_PATHS.has(pathHeader.split("?")[0]);
   const [user, settings] = await Promise.all([getSessionUser(), Promise.resolve(getSettings())]);
-  if (user) redirect(ROLE_HOME[user.role] ?? "/");
+  if (user && !isRecoveryPage) redirect(ROLE_HOME[user.role] ?? "/");
 
   return (
     <div className="min-h-dvh bg-[#f4faf6] dark:bg-[#08110d]">

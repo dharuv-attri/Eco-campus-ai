@@ -22,10 +22,10 @@ export const COMPLAINT_SELECT = `
   LEFT JOIN campus_locations l ON l.id = c.location_id
 `;
 
-export function complaintCode(year = new Date().getFullYear()) {
-  return transaction(() => {
+export async function complaintCode(year = new Date().getFullYear()) {
+  return await transaction(async () => {
     const prefix = `ECO-${year}-`;
-    const row = one<{ max_code: string | null }>(
+    const row = await one<{ max_code: string | null }>(
       "SELECT MAX(complaint_code) AS max_code FROM complaints WHERE complaint_code LIKE ?",
       `${prefix}%`,
     );
@@ -34,40 +34,40 @@ export function complaintCode(year = new Date().getFullYear()) {
   });
 }
 
-export function getComplaint(id: string): FullComplaint | null {
-  const base = one<FullComplaint>(`${COMPLAINT_SELECT} WHERE c.id = ?`, id);
+export async function getComplaint(id: string): Promise<FullComplaint | null> {
+  const base = await one<FullComplaint>(`${COMPLAINT_SELECT} WHERE c.id = ?`, id);
   if (!base) return null;
-  return hydrateComplaint(base);
+  return await hydrateComplaint(base);
 }
 
-export function getComplaintByCode(code: string): FullComplaint | null {
-  const base = one<FullComplaint>(`${COMPLAINT_SELECT} WHERE c.complaint_code = ?`, code);
+export async function getComplaintByCode(code: string): Promise<FullComplaint | null> {
+  const base = await one<FullComplaint>(`${COMPLAINT_SELECT} WHERE c.complaint_code = ?`, code);
   if (!base) return null;
-  return hydrateComplaint(base);
+  return await hydrateComplaint(base);
 }
 
-function hydrateComplaint(base: FullComplaint): FullComplaint {
-  const images = all<FullComplaint["images"][number]>(
+async function hydrateComplaint(base: FullComplaint): Promise<FullComplaint> {
+  const images = await all<FullComplaint["images"][number]>(
     "SELECT id, url, kind, created_at FROM complaint_images WHERE complaint_id = ? ORDER BY created_at ASC",
     base.id,
   );
-  const history = all<FullComplaint["history"][number]>(
+  const history = await all<FullComplaint["history"][number]>(
     `SELECT h.*, u.full_name AS changed_by_name
      FROM complaint_status_history h LEFT JOIN users u ON u.id = h.changed_by
      WHERE h.complaint_id = ? ORDER BY h.created_at ASC`,
     base.id,
   );
-  const staffUpdates = all<FullComplaint["staff_updates"][number]>(
+  const staffUpdates = await all<FullComplaint["staff_updates"][number]>(
     `SELECT su.*, u.full_name AS staff_name
      FROM staff_updates su LEFT JOIN users u ON u.id = su.staff_id
      WHERE su.complaint_id = ? ORDER BY su.created_at ASC`,
     base.id,
   );
-  const feedback = one<NonNullable<FullComplaint["feedback"]>>(
+  const feedback = await one<NonNullable<FullComplaint["feedback"]>>(
     "SELECT * FROM complaint_feedback WHERE complaint_id = ?",
     base.id,
   );
-  const assignments = all<NonNullable<FullComplaint["assignments"]>[number]>(
+  const assignments = await all<NonNullable<FullComplaint["assignments"]>[number]>(
     `SELECT a.*, d.name AS department_name, s.full_name AS staff_name
      FROM complaint_assignments a
      LEFT JOIN departments d ON d.id = a.department_id
@@ -78,15 +78,15 @@ function hydrateComplaint(base: FullComplaint): FullComplaint {
   return { ...base, images, history, staff_updates: staffUpdates, feedback, assignments };
 }
 
-export function listPublicComplaints(limit = 6) {
-  return all<FullComplaint>(
+export async function listPublicComplaints(limit = 6) {
+  return await all<FullComplaint>(
     `${COMPLAINT_SELECT} WHERE c.status NOT IN ('rejected', 'archived') ORDER BY c.created_at DESC LIMIT ?`,
     limit,
   );
 }
 
-export function listComplaintsForMap() {
-  return all<FullComplaint>(
+export async function listComplaintsForMap() {
+  return await all<FullComplaint>(
     `${COMPLAINT_SELECT}
      WHERE c.status NOT IN ('rejected', 'archived')
        AND ((c.lat IS NOT NULL AND c.lng IS NOT NULL) OR c.location_id IS NOT NULL)
@@ -94,14 +94,14 @@ export function listComplaintsForMap() {
   );
 }
 
-export function recordHistory(input: {
+export async function recordHistory(input: {
   complaintId: string;
   fromStatus: string | null;
   toStatus: string;
   note?: string | null;
   changedBy?: string | null;
 }) {
-  run(
+  await run(
     `INSERT INTO complaint_status_history (id, complaint_id, from_status, to_status, note, changed_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     randomUUID(),
@@ -114,14 +114,14 @@ export function recordHistory(input: {
   );
 }
 
-export function addAssignment(input: {
+export async function addAssignment(input: {
   complaintId: string;
   departmentId?: string | null;
   staffId?: string | null;
   assignedBy: string;
   note?: string | null;
 }) {
-  run(
+  await run(
     `INSERT INTO complaint_assignments (id, complaint_id, department_id, staff_id, assigned_by, note, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     randomUUID(),
@@ -134,7 +134,7 @@ export function addAssignment(input: {
   );
 }
 
-export function updateComplaintFields(id: string, fields: Record<string, string | number | null>) {
+export async function updateComplaintFields(id: string, fields: Record<string, string | number | null>) {
   const allowed = new Set([
     "assigned_department_id",
     "assigned_staff_id",
@@ -154,11 +154,11 @@ export function updateComplaintFields(id: string, fields: Record<string, string 
   if (!entries.length) return;
   const assignments = entries.map(([key]) => `${key} = ?`).join(", ");
   const values = entries.map(([, value]) => value);
-  run(`UPDATE complaints SET ${assignments}, updated_at = ? WHERE id = ?`, ...values, nowIso(), id);
+  await run(`UPDATE complaints SET ${assignments}, updated_at = ? WHERE id = ?`, ...values, nowIso(), id);
 }
 
-export function suggestDepartmentId(category: string) {
-  const departments = all<{ id: string; handles_categories: string | null }>(
+export async function suggestDepartmentId(category: string) {
+  const departments = await all<{ id: string; handles_categories: string | null }>(
     "SELECT id, handles_categories FROM departments",
   );
   for (const dept of departments) {
@@ -172,8 +172,8 @@ export function suggestDepartmentId(category: string) {
   return null;
 }
 
-export function awardVerificationPoints(complaintId: string, actor?: SessionUser | null) {
-  const complaint = one<{
+export async function awardVerificationPoints(complaintId: string, actor?: SessionUser | null) {
+  const complaint = await one<{
     id: string;
     reporter_id: string;
     complaint_code: string;
@@ -184,8 +184,8 @@ export function awardVerificationPoints(complaintId: string, actor?: SessionUser
     complaintId,
   );
   if (!complaint || complaint.points_awarded === 1) return false;
-  transaction(() => {
-    run(
+  await transaction(async () => {
+    await run(
       `INSERT OR IGNORE INTO leaderboard_points (id, user_id, points, reason, complaint_id, is_demo, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       randomUUID(),
@@ -196,16 +196,16 @@ export function awardVerificationPoints(complaintId: string, actor?: SessionUser
       0,
       nowIso(),
     );
-    updateComplaintFields(complaint.id, { points_awarded: 1 });
+    await updateComplaintFields(complaint.id, { points_awarded: 1 });
   });
-  notifyUser({
+  await notifyUser({
     userId: complaint.reporter_id,
     complaintId: complaint.id,
     type: "points",
     title: "Green points awarded",
     message: `You earned 20 green points for verified report ${complaint.complaint_code}.`,
   });
-  logAudit({
+  await logAudit({
     actor,
     action: "Awarded verified-report points",
     entityType: "complaint",
@@ -215,7 +215,7 @@ export function awardVerificationPoints(complaintId: string, actor?: SessionUser
   return true;
 }
 
-export function transitionComplaint(input: {
+export async function transitionComplaint(input: {
   complaint: { id: string; complaint_code: string; status: string; reporter_id: string; location_name?: string | null };
   toStatus: string;
   actor: SessionUser;
@@ -223,11 +223,11 @@ export function transitionComplaint(input: {
   notify?: { title: string; message: string; type?: string } | null;
   fields?: Record<string, string | number | null>;
 }) {
-  updateComplaintFields(input.complaint.id, {
+  await updateComplaintFields(input.complaint.id, {
     status: input.toStatus,
     ...(input.fields ?? {}),
   });
-  recordHistory({
+  await recordHistory({
     complaintId: input.complaint.id,
     fromStatus: input.complaint.status,
     toStatus: input.toStatus,
@@ -235,7 +235,7 @@ export function transitionComplaint(input: {
     changedBy: input.actor.id,
   });
   if (input.notify !== null) {
-    notifyUser({
+    await notifyUser({
       userId: input.complaint.reporter_id,
       complaintId: input.complaint.id,
       type: input.notify?.type ?? "status",
@@ -247,7 +247,7 @@ export function transitionComplaint(input: {
   }
 }
 
-export function duplicateCandidates(input: {
+export async function duplicateCandidates(input: {
   userId: string;
   category: string;
   locationId?: string | null;
@@ -255,7 +255,7 @@ export function duplicateCandidates(input: {
   title: string;
 }) {
   const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
-  const rows = all<FullComplaint>(
+  const rows = await all<FullComplaint>(
     `${COMPLAINT_SELECT}
      WHERE c.reporter_id = ?
        AND c.category = ?
@@ -364,11 +364,11 @@ function complaintWhere(filters: ComplaintFilters) {
   return { clause, params };
 }
 
-export function listComplaints(filters: ComplaintFilters = {}): Complaint[] {
+export async function listComplaints(filters: ComplaintFilters = {}): Promise<Complaint[]> {
   const where = complaintWhere(filters);
   const limit = Math.min(Math.max(filters.limit ?? 20, 1), 200);
   const offset = Math.max(filters.offset ?? 0, 0);
-  return all<Complaint>(
+  return await all<Complaint>(
     `${COMPLAINT_SELECT} ${where.clause} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
     ...where.params,
     limit,
@@ -376,18 +376,18 @@ export function listComplaints(filters: ComplaintFilters = {}): Complaint[] {
   );
 }
 
-export function countComplaints(filters: ComplaintFilters = {}) {
+export async function countComplaints(filters: ComplaintFilters = {}) {
   const where = complaintWhere(filters);
-  const row = one<{ count: number }>(
+  const row = await one<{ count: number }>(
     `SELECT COUNT(*) AS count FROM complaints c ${where.clause}`,
     ...where.params,
   );
   return row?.count ?? 0;
 }
 
-export function getStatusCounts(filters: ComplaintFilters = {}) {
+export async function getStatusCounts(filters: ComplaintFilters = {}) {
   const where = complaintWhere(filters);
-  const rows = all<{ status: string; count: number }>(
+  const rows = await all<{ status: string; count: number }>(
     `SELECT c.status, COUNT(*) AS count FROM complaints c ${where.clause} GROUP BY c.status`,
     ...where.params,
   );

@@ -8,11 +8,11 @@ import { nowIso } from "@/lib/utils";
 export async function GET() {
   const auth = await authorizeApi();
   if (auth.response) return auth.response;
-  const notifications = all(
+  const notifications = await all(
     `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 60`,
     auth.user.id,
   );
-  const unread = one<{ count: number }>(
+  const unread = await one<{ count: number }>(
     "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
     auth.user.id,
   );
@@ -40,13 +40,13 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return apiError("Invalid notification action.");
 
   if (parsed.data.action === "read_all") {
-    run(
+    await run(
       "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0",
       auth.user.id,
     );
   } else {
     if (!parsed.data.id) return apiError("Notification ID is required.");
-    run(
+    await run(
       "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
       parsed.data.id,
       auth.user.id,

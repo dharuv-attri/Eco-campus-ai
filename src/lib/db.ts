@@ -1,411 +1,290 @@
-import fs from "node:fs";
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-
-const globalForDb = globalThis as unknown as {
-  __ecocampusDb?: DatabaseSync;
-  __ecocampusDbInit?: boolean;
-};
-
-export function databasePath() {
-  const configured = process.env.DATABASE_PATH || "data/ecocampus.db";
-  return path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
-}
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS roles (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  description TEXT
-);
-
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT,
-  role TEXT NOT NULL DEFAULT 'student',
-  full_name TEXT NOT NULL,
-  profile_image TEXT,
-  student_id TEXT,
-  course TEXT,
-  department TEXT,
-  department_id TEXT,
-  year_semester TEXT,
-  employee_id TEXT,
-  designation TEXT,
-  email_verified INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'active',
-  provider TEXT NOT NULL DEFAULT 'email',
-  is_demo INTEGER NOT NULL DEFAULT 0,
-  failed_attempts INTEGER NOT NULL DEFAULT 0,
-  locked_until TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash TEXT NOT NULL UNIQUE,
-  expires_at TEXT NOT NULL,
-  ip TEXT,
-  user_agent TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS email_tokens (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  token_hash TEXT NOT NULL UNIQUE,
-  expires_at TEXT NOT NULL,
-  used_at TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS departments (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  slug TEXT NOT NULL UNIQUE,
-  description TEXT,
-  handles_categories TEXT,
-  email TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS campus_locations (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  category TEXT NOT NULL,
-  building TEXT,
-  floor TEXT,
-  description TEXT,
-  lat REAL,
-  lng REAL,
-  verified INTEGER NOT NULL DEFAULT 0,
-  qr_slug TEXT NOT NULL UNIQUE,
-  created_by TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS complaints (
-  id TEXT PRIMARY KEY,
-  complaint_code TEXT NOT NULL UNIQUE,
-  reporter_id TEXT NOT NULL REFERENCES users(id),
-  anonymous INTEGER NOT NULL DEFAULT 0,
-  title TEXT NOT NULL,
-  category TEXT NOT NULL,
-  description TEXT NOT NULL,
-  priority TEXT NOT NULL DEFAULT 'medium',
-  status TEXT NOT NULL DEFAULT 'submitted',
-  location_id TEXT REFERENCES campus_locations(id) ON DELETE SET NULL,
-  building TEXT,
-  floor TEXT,
-  room_number TEXT,
-  specific_location TEXT,
-  lat REAL,
-  lng REAL,
-  assigned_department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
-  assigned_staff_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  admin_notes TEXT,
-  resolution_notes TEXT,
-  rejection_reason TEXT,
-  reopen_reason TEXT,
-  is_demo INTEGER NOT NULL DEFAULT 0,
-  points_awarded INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  resolved_at TEXT,
-  verified_at TEXT,
-  closed_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS complaint_images (
-  id TEXT PRIMARY KEY,
-  complaint_id TEXT NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
-  url TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'report',
-  uploaded_by TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS complaint_assignments (
-  id TEXT PRIMARY KEY,
-  complaint_id TEXT NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
-  department_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
-  staff_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-  note TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS complaint_status_history (
-  id TEXT PRIMARY KEY,
-  complaint_id TEXT NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
-  from_status TEXT,
-  to_status TEXT NOT NULL,
-  note TEXT,
-  changed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS staff_updates (
-  id TEXT PRIMARY KEY,
-  complaint_id TEXT NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
-  staff_id TEXT NOT NULL REFERENCES users(id),
-  update_type TEXT NOT NULL DEFAULT 'progress',
-  message TEXT NOT NULL,
-  image_url TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS complaint_feedback (
-  id TEXT PRIMARY KEY,
-  complaint_id TEXT NOT NULL UNIQUE REFERENCES complaints(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  rating INTEGER NOT NULL,
-  comment TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS notifications (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  complaint_id TEXT REFERENCES complaints(id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  is_read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS website_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS website_sections (
-  key TEXT PRIMARY KEY,
-  label TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS announcements (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  slug TEXT NOT NULL UNIQUE,
-  excerpt TEXT,
-  content TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT 'General',
-  published INTEGER NOT NULL DEFAULT 1,
-  is_demo INTEGER NOT NULL DEFAULT 0,
-  created_by TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS environmental_articles (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  slug TEXT NOT NULL UNIQUE,
-  excerpt TEXT,
-  content TEXT NOT NULL,
-  category TEXT NOT NULL,
-  read_minutes INTEGER NOT NULL DEFAULT 4,
-  image_url TEXT,
-  published INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS green_activities (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  description TEXT,
-  points INTEGER NOT NULL DEFAULT 10,
-  activity_date TEXT,
-  verified INTEGER NOT NULL DEFAULT 0,
-  is_demo INTEGER NOT NULL DEFAULT 0,
-  created_by TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS leaderboard_points (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  points INTEGER NOT NULL,
-  reason TEXT NOT NULL,
-  activity_id TEXT,
-  complaint_id TEXT,
-  quiz_id TEXT,
-  is_demo INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_points_complaint
-  ON leaderboard_points(user_id, complaint_id) WHERE complaint_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_points_quiz
-  ON leaderboard_points(user_id, quiz_id) WHERE quiz_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS quiz_attempts (
-  id TEXT PRIMARY KEY,
-  quiz_id TEXT NOT NULL,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  score INTEGER NOT NULL,
-  total INTEGER NOT NULL,
-  points_awarded INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_attempt_user ON quiz_attempts(quiz_id, user_id);
-
-CREATE TABLE IF NOT EXISTS ai_chat_history (
-  id TEXT PRIMARY KEY,
-  chat_session_id TEXT NOT NULL,
-  user_id TEXT,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  language TEXT,
-  mode TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS admin_audit_logs (
-  id TEXT PRIMARY KEY,
-  actor_id TEXT,
-  actor_name TEXT,
-  action TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id TEXT,
-  details TEXT,
-  ip TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS uploaded_files (
-  id TEXT PRIMARY KEY,
-  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  stored_name TEXT NOT NULL UNIQUE,
-  original_name TEXT NOT NULL,
-  mime TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS email_outbox (
-  id TEXT PRIMARY KEY,
-  to_email TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  body TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'logged',
-  error TEXT,
-  created_at TEXT NOT NULL,
-  sent_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS rate_limit_events (
-  id TEXT PRIMARY KEY,
-  bucket TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_complaints_reporter ON complaints(reporter_id);
-CREATE INDEX IF NOT EXISTS idx_complaints_reporter_created ON complaints(reporter_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_complaints_status ON complaints(status);
-CREATE INDEX IF NOT EXISTS idx_complaints_department ON complaints(assigned_department_id);
-CREATE INDEX IF NOT EXISTS idx_complaints_department_created ON complaints(assigned_department_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_complaints_staff ON complaints(assigned_staff_id);
-CREATE INDEX IF NOT EXISTS idx_complaints_staff_created ON complaints(assigned_staff_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_complaints_created ON complaints(created_at);
-CREATE INDEX IF NOT EXISTS idx_complaints_category ON complaints(category);
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_history_complaint ON complaint_status_history(complaint_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_images_complaint ON complaint_images(complaint_id);
-CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_logs(created_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
-CREATE INDEX IF NOT EXISTS idx_users_role ON users(role, status);
-
-INSERT OR IGNORE INTO roles (id, name, description) VALUES
-  (1, 'student', 'Reports environmental problems and tracks their own complaints'),
-  (2, 'staff', 'Handles complaints assigned to them or their department'),
-  (3, 'admin', 'Manages complaints, content, users and campus data'),
-  (4, 'super_admin', 'Full platform control including role management');
-`;
-
-function initialise(db: DatabaseSync) {
-  db.exec("PRAGMA foreign_keys = ON;");
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA busy_timeout = 5000;");
-  db.exec(SCHEMA);
-}
-
-export function getDb() {
-  if (globalForDb.__ecocampusDb && globalForDb.__ecocampusDbInit) {
-    return globalForDb.__ecocampusDb;
-  }
-  const file = databasePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  initialise(db);
-  globalForDb.__ecocampusDb = db;
-  globalForDb.__ecocampusDbInit = true;
-  return db;
-}
+import { Pool, types, type PoolClient } from "pg";
 
 type SqlParam = string | number | bigint | null | Uint8Array;
+type QueryResult = { changes: number };
 
-/**
- * node:sqlite returns rows as objects with a null prototype, which Next.js
- * cannot serialize when passed from Server Components to Client Components.
- * Normalize every row into a plain object here so all callers are safe.
- */
-function plain<T>(row: unknown): T {
-  return { ...(row as Record<string, unknown>) } as T;
-}
+const transactionClient = new AsyncLocalStorage<PoolClient>();
 
-export function all<T = Record<string, unknown>>(sql: string, ...params: SqlParam[]): T[] {
-  const rows = getDb().prepare(sql).all(...params) as unknown[];
-  return rows.map((row) => plain<T>(row));
-}
+const globalForDb = globalThis as typeof globalThis & {
+  __ecocampusPool?: Pool;
+};
 
-export function one<T = Record<string, unknown>>(sql: string, ...params: SqlParam[]): T | null {
-  const row = getDb().prepare(sql).get(...params);
-  return row ? plain<T>(row) : null;
-}
+types.setTypeParser(20, (value) => {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : value;
+});
 
-export function run(sql: string, ...params: SqlParam[]) {
-  return getDb().prepare(sql).run(...params);
-}
+function getPool() {
+  if (globalForDb.__ecocampusPool) {
+    return globalForDb.__ecocampusPool;
+  }
 
-export function exec(sql: string) {
-  getDb().exec(sql);
-}
+  const connectionString =
+    process.env.SUPABASE_DB_URL?.trim() ||
+    process.env.DATABASE_URL?.trim();
 
-export function transaction<T>(fn: () => T): T {
-  const db = getDb();
-  db.exec("BEGIN IMMEDIATE");
+  if (!connectionString) {
+    throw new Error(
+      "Supabase PostgreSQL is not configured. Set SUPABASE_DB_URL on the server.",
+    );
+  }
+
+  let hostname: string;
+
   try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
+    const url = new URL(connectionString);
+
+    if (!["postgres:", "postgresql:"].includes(url.protocol)) {
+      throw new Error();
+    }
+
+    hostname = url.hostname;
+  } catch {
+    throw new Error(
+      "SUPABASE_DB_URL must be a valid PostgreSQL connection URL.",
+    );
+  }
+
+  const isLocalhost = [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+  ].includes(hostname);
+
+  let sslConfig: false | { ca: string; rejectUnauthorized: boolean };
+
+  if (isLocalhost) {
+    sslConfig = false;
+  } else {
+    const certificatePath = path.join(
+      process.cwd(),
+      "src",
+      "lib",
+      "certs",
+      "prod-ca-2021.crt",
+    );
+
+    let caCertificate: string;
+
     try {
-      db.exec("ROLLBACK");
+      caCertificate = readFileSync(certificatePath, "utf8");
     } catch {
-      // Ignore a rollback failure; the original error is more useful.
+      throw new Error(
+        `Supabase SSL certificate not found at: ${certificatePath}`,
+      );
+    }
+
+    sslConfig = {
+      ca: caCertificate,
+      rejectUnauthorized: true,
+    };
+  }
+
+  const pool = new Pool({
+    connectionString,
+    // The Supabase Supavisor pooler runs in session mode and refuses new
+    // clients beyond its pool_size (15 per user) with a fatal EMAXCONNSESSION
+    // error. The app must leave headroom for maintenance scripts, migrations
+    // and any second deployment, otherwise server components fail mid-render
+    // and pages fall back to a nearly empty client-only render.
+    max: 8,
+    // Keeping sockets warm avoids a fresh TCP + TLS handshake to the Supabase
+    // pooler on nearly every request, which was the main source of 1–3 s
+    // stalls after short idle periods.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 5_000,
+    // Release idle sessions faster: in session mode every pooled client holds
+    // a real PostgreSQL session and counts against the pooler's client cap.
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+    application_name: "ecocampus-ai",
+    ssl: sslConfig,
+  });
+
+  // An idle client can be terminated by the pooler. Without a listener this
+  // emits an unhandled error and can take the whole process down.
+  pool.on("error", (error) => {
+    console.error("Idle PostgreSQL client error:", error);
+  });
+
+  globalForDb.__ecocampusPool = pool;
+
+  return pool;
+}
+
+function toPostgresSql(sql: string) {
+  const ignoreConflicts = /^\s*INSERT\s+OR\s+IGNORE\s+INTO\b/i.test(sql);
+
+  let source = ignoreConflicts
+    ? sql.replace(/^(\s*INSERT)\s+OR\s+IGNORE\s+INTO\b/i, "$1 INTO")
+    : sql;
+
+  let output = "";
+  let index = 0;
+  let quote: "'" | '"' | null = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i];
+    const next = source[i + 1];
+
+    if (lineComment) {
+      output += char;
+
+      if (char === "\n") {
+        lineComment = false;
+      }
+
+      continue;
+    }
+
+    if (blockComment) {
+      output += char;
+
+      if (char === "*" && next === "/") {
+        output += next;
+        i += 1;
+        blockComment = false;
+      }
+
+      continue;
+    }
+
+    if (quote) {
+      output += char;
+
+      if (char === quote) {
+        if (next === quote) {
+          output += next;
+          i += 1;
+        } else {
+          quote = null;
+        }
+      } else if (char === "\\" && next) {
+        output += next;
+        i += 1;
+      }
+
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      output += char + next;
+      i += 1;
+      lineComment = true;
+    } else if (char === "/" && next === "*") {
+      output += char + next;
+      i += 1;
+      blockComment = true;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+      output += char;
+    } else if (char === "?") {
+      output += `$${++index}`;
+    } else {
+      output += char;
+    }
+  }
+
+  if (ignoreConflicts) {
+    const semicolon = /;\s*$/.test(output);
+    source = output.replace(/;\s*$/, "");
+    output = `${source} ON CONFLICT DO NOTHING${semicolon ? ";" : ""}`;
+  }
+
+  return output;
+}
+
+async function query<
+  T extends Record<string, unknown> = Record<string, unknown>
+>(sql: string, params: SqlParam[]) {
+  const client = transactionClient.getStore() ?? getPool();
+  const statement = toPostgresSql(sql);
+
+  try {
+    return await client.query<T>(statement, params);
+  } catch (error) {
+    // Supavisor refuses a new client when its session-mode pool is exhausted
+    // (fatal EMAXCONNSESSION). This is transient: other requests release
+    // clients within milliseconds, so a short retry keeps pages rendering
+    // instead of failing mid-render. Real SQL errors are never retried.
+    const message = error instanceof Error ? error.message : "";
+    if (/EMAXCONNSESSION|max clients reached/i.test(message)) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return client.query<T>(statement, params);
     }
     throw error;
   }
 }
 
-export function closeDb() {
-  if (globalForDb.__ecocampusDb) {
-    globalForDb.__ecocampusDb.close();
-    globalForDb.__ecocampusDb = undefined;
-    globalForDb.__ecocampusDbInit = false;
+export async function all<T = Record<string, unknown>>(
+  sql: string,
+  ...params: SqlParam[]
+): Promise<T[]> {
+  const result = await query(sql, params);
+
+  return result.rows.map((row) => ({ ...row }) as T);
+}
+
+export async function one<T = Record<string, unknown>>(
+  sql: string,
+  ...params: SqlParam[]
+): Promise<T | null> {
+  const result = await query(sql, params);
+  const row = result.rows[0];
+
+  return row ? ({ ...row } as T) : null;
+}
+
+export async function run(
+  sql: string,
+  ...params: SqlParam[]
+): Promise<QueryResult> {
+  const result = await query(sql, params);
+
+  return { changes: result.rowCount ?? 0 };
+}
+
+export async function exec(sql: string): Promise<void> {
+  await query(sql, []);
+}
+
+export async function transaction<T>(
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  const currentClient = transactionClient.getStore();
+
+  if (currentClient) {
+    return fn();
+  }
+
+  const client = await getPool().connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await transactionClient.run(client, fn);
+
+    await client.query("COMMIT");
+
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error(
+        "Could not roll back the PostgreSQL transaction:",
+        rollbackError,
+      );
+    }
+
+    throw error;
+  } finally {
+    client.release();
   }
 }

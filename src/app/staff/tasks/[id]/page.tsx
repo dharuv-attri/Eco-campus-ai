@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Assigned report" };
 export default async function StaffTaskDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireRole(["staff"], "/staff/tasks");
   const { id } = await params;
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint || !canAccessComplaint(user, complaint)) notFound();
 
   const canManage = complaint.status !== "archived" && canManageComplaint(user, complaint);

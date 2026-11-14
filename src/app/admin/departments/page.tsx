@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Departments" };
 
 export default async function AdminDepartmentsPage() {
   await requireRole(["admin", "super_admin"], "/admin/departments");
-  const departments = all<Department & { staff_count: number; open_count: number }>(
+  const departments = await all<Department & { staff_count: number; open_count: number }>(
     `SELECT d.*,
        (SELECT COUNT(*) FROM users u WHERE u.department_id = d.id AND u.role = 'staff' AND u.status = 'active') AS staff_count,
        (SELECT COUNT(*) FROM complaints c WHERE c.assigned_department_id = d.id AND c.status NOT IN ('closed','rejected','verified')) AS open_count

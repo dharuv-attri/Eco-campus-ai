@@ -10,8 +10,8 @@ export const metadata: Metadata = { title: "Website CMS" };
 
 export default async function AdminCmsPage() {
   await requireRole(["admin", "super_admin"], "/admin/cms");
-  const settings = getSettings();
-  const sections = getSections();
+  const settings = await getSettings();
+  const sections = await getSections();
 
   return (
     <>

@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Notifications" };
 
 export default async function StudentNotificationsPage() {
   const user = await requireRole(["student"], "/student/notifications");
-  const notifications = listUserNotifications(user.id);
+  const notifications = await listUserNotifications(user.id);
   return (
     <>
       <PageHeader

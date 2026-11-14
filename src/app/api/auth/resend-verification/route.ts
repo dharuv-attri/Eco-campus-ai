@@ -7,7 +7,7 @@ import { appBaseUrlForRequest } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
-  if (!rateLimit(`resend:${clientIp(req)}`, 6, 60 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`resend:${clientIp(req)}`, 6, 60 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
   }
   let json: unknown;
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const profile = one<{ email_verified: number; status: string; is_demo: number }>(
+  const profile = await one<{ email_verified: number; status: string; is_demo: number }>(
     "SELECT email_verified, status, is_demo FROM users WHERE lower(email) = ?",
     parsed.data.email,
   );

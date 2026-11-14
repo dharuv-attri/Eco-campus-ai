@@ -7,13 +7,18 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await requireRole(["admin", "super_admin"], "/admin/dashboard");
-  const settings = getSettings();
-  const unread =
-    one<{ count: number }>("SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0", user.id)
-      ?.count ?? 0;
-  const pendingStaff =
-    one<{ count: number }>("SELECT COUNT(*) AS count FROM users WHERE role = 'staff' AND status = 'pending'")
-      ?.count ?? 0;
+  const [settings, unreadRow, pendingStaffRow] = await Promise.all([
+    getSettings(),
+    one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
+      user.id,
+    ),
+    one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM users WHERE role = 'staff' AND status = 'pending'",
+    ),
+  ]);
+  const unread = unreadRow?.count ?? 0;
+  const pendingStaff = pendingStaffRow?.count ?? 0;
 
   return (
     <PortalShell

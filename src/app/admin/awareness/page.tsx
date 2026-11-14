@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Awareness articles" };
 
 export default async function AdminAwarenessPage() {
   await requireRole(["admin", "super_admin"], "/admin/awareness");
-  const articles = all<Article>("SELECT * FROM environmental_articles ORDER BY created_at DESC");
+  const articles = await all<Article>("SELECT * FROM environmental_articles ORDER BY created_at DESC");
 
   return (
     <>

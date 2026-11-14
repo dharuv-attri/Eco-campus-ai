@@ -30,7 +30,15 @@ function GoogleIcon() {
   );
 }
 
-function GoogleButton({ enabled, role }: { enabled: boolean; role?: LoginRole }) {
+function GoogleButton({
+  enabled,
+  role,
+  nextPath,
+}: {
+  enabled: boolean;
+  role?: LoginRole;
+  nextPath?: string;
+}) {
   if (!enabled) {
     return (
       <div>
@@ -48,9 +56,14 @@ function GoogleButton({ enabled, role }: { enabled: boolean; role?: LoginRole })
       </div>
     );
   }
+  const params = new URLSearchParams();
+  if (role) params.set("role", role);
+  if (nextPath) params.set("next", nextPath);
+  const query = params.toString();
+
   return (
     <a
-      href={`/api/auth/google${role ? `?role=${role}` : ""}`}
+      href={`/api/auth/google${query ? `?${query}` : ""}`}
       className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border bg-white text-sm font-semibold text-ink-700 transition hover:bg-ink-50 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
     >
       <GoogleIcon /> Continue with Google
@@ -260,7 +273,7 @@ export function LoginForm({
             Portal access is assigned to your account; choosing a portal never changes your role.
           </p>
         </div>
-        <GoogleButton enabled={googleEnabled} role={requestedRole} />
+        <GoogleButton enabled={googleEnabled} role={requestedRole} nextPath={nextPath} />
         <div className="my-5 flex items-center gap-3">
           <span className="h-px flex-1 bg-[var(--border)]" />
           <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-400">
@@ -766,52 +779,157 @@ export function SignupForm({
 }
 
 export function ForgotForm() {
+  const [step, setStep] = useState<"email" | "code" | "password" | "done">("email");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ message: string; resetUrl?: string } | null>(null);
+  const [info, setInfo] = useState("");
+  const [resending, setResending] = useState(false);
+  // Mirrors the server-side resend limit so the button communicates the wait
+  // instead of letting every click end in a 429 error message.
+  const [resendCooldown, setResendCooldown] = useState(0);
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setLoading(true);
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((seconds) => (seconds > 0 ? seconds - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  function resetToEmail() {
+    setStep("email");
+    setCode("");
+    setPassword("");
+    setConfirm("");
     setError("");
+    setInfo("");
+  }
+
+  async function requestCode(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setInfo("");
+    setLoading(true);
     try {
       const response = await fetch("/api/auth/forgot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = (await response.json()) as { error?: string; message?: string; resetUrl?: string };
-      if (!response.ok) throw new Error(data.error || "Could not create a reset link.");
-      setResult({ message: data.message || "Check your email.", resetUrl: data.resetUrl });
+      const data = (await response.json()) as { ok?: boolean; error?: string; message?: string };
+      if (!response.ok) throw new Error(data.error || "Could not send the reset code.");
+      setInfo(data.message || "Check your inbox for the 6-digit code.");
+      setResendCooldown(60);
+      setStep("code");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create a reset link.");
+      setError(err instanceof Error ? err.message : "Could not send the reset code.");
     } finally {
       setLoading(false);
     }
   }
 
+  async function resendCode() {
+    setError("");
+    setInfo("");
+    setResending(true);
+    try {
+      const response = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = (await response.json()) as { error?: string; message?: string };
+      if (!response.ok) throw new Error(data.error || "Could not resend the code.");
+      setCode("");
+      setInfo(data.message || "A new code has been sent.");
+      setResendCooldown(60);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resend the code.");
+    } finally {
+      setResending(false);
+    }
+  }
+
+  async function verifyCode(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setInfo("");
+    setLoading(true);
+    try {
+      const response = await fetch("/api/auth/reset/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, code }),
+      });
+      const data = (await response.json()) as { ok?: boolean; error?: string; message?: string };
+      if (!response.ok) throw new Error(data.error || "Could not verify that code.");
+      setInfo(data.message || "Code verified. Choose a new password.");
+      setStep("password");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify that code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updatePassword(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+      setError("Include at least one uppercase letter, one lowercase letter and one number.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch("/api/auth/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = (await response.json()) as { ok?: boolean; error?: string; message?: string };
+      if (!response.ok) throw new Error(data.error || "Could not update your password.");
+      setInfo(data.message || "Password updated. You can now sign in.");
+      setStep("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update your password.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const titles = {
+    email: ["Reset your password", "Enter your registered email and we'll send a 6-digit reset code."],
+    code: ["Enter your reset code", `We sent a 6-digit code to ${email}. It expires in 60 minutes.`],
+    password: ["Choose a new password", "Your code was verified. Use a strong password you have not used elsewhere."],
+    done: ["Password updated", "Your password was changed successfully. Sign in with the new password."],
+  } as const;
+
   return (
     <div>
-      <AuthHeading title="Reset your password" description="We'll create a secure, time-limited reset link for your account." />
+      <AuthHeading title={titles[step][0]} description={titles[step][1]} />
       <div className="surface p-6">
-        {result ? (
+        {step === "done" ? (
           <div className="space-y-4">
-            <SuccessBox>{result.message}</SuccessBox>
-            {result.resetUrl ? (
-              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-xs">
-                <p className="font-semibold text-amber-700 dark:text-amber-300">Demo mode: email delivery not configured.</p>
-                <Link href={result.resetUrl} className="mt-2 block break-all font-semibold text-emerald-700 underline dark:text-emerald-300">
-                  Open the password reset link
-                </Link>
-              </div>
-            ) : null}
-            <Link href="/login" className="block text-center text-xs font-semibold text-emerald-700 hover:underline">
-              Back to sign in
+            <SuccessBox>{info || "Password updated. You can now sign in."}</SuccessBox>
+            <Link href="/login">
+              <Button className="w-full">
+                <ArrowRight className="h-4 w-4" /> Go to sign in
+              </Button>
             </Link>
           </div>
-        ) : (
-          <form onSubmit={submit} className="space-y-4">
+        ) : null}
+
+        {step === "email" ? (
+          <form onSubmit={requestCode} className="space-y-4">
             {error ? <ErrorBox>{error}</ErrorBox> : null}
             <div>
               <Label htmlFor="forgot-email">Email address</Label>
@@ -826,10 +944,113 @@ export function ForgotForm() {
               />
             </div>
             <Button type="submit" loading={loading} className="w-full">
-              Create reset link
+              <MailCheck className="h-4 w-4" /> Send reset code
             </Button>
           </form>
-        )}
+        ) : null}
+
+        {step === "code" ? (
+          <form onSubmit={verifyCode} className="space-y-4">
+            {error ? <ErrorBox>{error}</ErrorBox> : null}
+            {info ? <SuccessBox>{info}</SuccessBox> : null}
+            <div>
+              <Label htmlFor="forgot-code">6-digit reset code</Label>
+              <Input
+                id="forgot-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                maxLength={6}
+                required
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                className="text-center font-mono text-lg tracking-[0.5em]"
+              />
+              <FieldHint>Sent to {email}. Codes expire after 60 minutes and work only once.</FieldHint>
+            </div>
+            <Button type="submit" loading={loading} className="w-full">
+              <ShieldCheck className="h-4 w-4" /> Verify code
+            </Button>
+            <div className="flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={resetToEmail}
+                className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300"
+              >
+                Use a different email
+              </button>
+              <button
+                type="button"
+                disabled={loading || resending || resendCooldown > 0}
+                onClick={() => void resendCode()}
+                className="text-ink-500 hover:underline disabled:opacity-50"
+              >
+                {resending
+                  ? "Sending…"
+                  : resendCooldown > 0
+                    ? `Resend available in ${resendCooldown}s`
+                    : "Resend code"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {step === "password" ? (
+          <form onSubmit={updatePassword} className="space-y-4">
+            {error ? <ErrorBox>{error}</ErrorBox> : null}
+            {info ? <SuccessBox>{info}</SuccessBox> : null}
+            <div>
+              <Label htmlFor="forgot-password">New password</Label>
+              <div className="relative">
+                <Input
+                  id="forgot-password"
+                  type={show ? "text" : "password"}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="At least 8 characters, with upper/lowercase and a number"
+                  className="pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow(!show)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-ink-400 hover:text-ink-700"
+                  aria-label={show ? "Hide password" : "Show password"}
+                >
+                  {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="forgot-confirm">Confirm password</Label>
+              <Input
+                id="forgot-confirm"
+                type={show ? "text" : "password"}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(event) => setConfirm(event.target.value)}
+                placeholder="Type the same password again"
+              />
+            </div>
+            <Button type="submit" loading={loading} className="w-full">
+              <KeyRound className="h-4 w-4" /> Update password
+            </Button>
+          </form>
+        ) : null}
+
+        {step !== "done" ? (
+          <p className="mt-5 text-center text-xs text-ink-500">
+            Remembered it?{" "}
+            <Link href="/login" className="font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
+              Back to sign in
+            </Link>
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -848,6 +1069,10 @@ export function ResetForm() {
     setError("");
     if (password !== confirm) {
       setError("Passwords do not match.");
+      return;
+    }
+    if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+      setError("Include at least one uppercase letter, one lowercase letter and one number.");
       return;
     }
     setLoading(true);

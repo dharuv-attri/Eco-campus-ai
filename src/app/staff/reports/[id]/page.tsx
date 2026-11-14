@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Report details" };
 export default async function StaffReportDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireRole(["staff"], "/staff/reports");
   const { id } = await params;
-  const complaint = getComplaint(id);
+  const complaint = await getComplaint(id);
   if (!complaint || complaint.reporter_id !== user.id) notFound();
 
   return (

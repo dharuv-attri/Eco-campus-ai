@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sign-out failed. Please try again." }, { status: 502 });
     }
     if (user) {
-      logAudit({
+      await logAudit({
         actor: user,
         action: "User signed out",
         entityType: "user",

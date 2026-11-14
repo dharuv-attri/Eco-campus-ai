@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "My profile" };
 
 export default async function StaffProfilePage() {
   const user = await requireRole(["staff"], "/staff/profile");
-  const stats = getStaffStats(user);
+  const stats = await getStaffStats(user);
   return (
     <>
       <PageHeader

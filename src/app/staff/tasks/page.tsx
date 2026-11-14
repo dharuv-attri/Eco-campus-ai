@@ -33,9 +33,9 @@ export default async function StaffTasksPage({
     category: get("category") || undefined,
     priority: get("priority") || undefined,
   };
-  const reports = listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
-  const total = countComplaints(filters);
-  const statusCounts = getStatusCounts({ staffAccess: access, excludeArchived: true });
+  const reports = await listComplaints({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  const total = await countComplaints(filters);
+  const statusCounts = await getStatusCounts({ staffAccess: access, excludeArchived: true });
   const allCount = Object.values(statusCounts).reduce((sum, value) => sum + value, 0);
   const openCount = ["submitted", "under_review", "assigned", "in_progress", "reopened"].reduce(
     (sum, status) => sum + (statusCounts[status] ?? 0),

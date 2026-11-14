@@ -29,9 +29,9 @@ export const metadata: Metadata = {
     "Learn how EcoCampus AI supports environmental reporting at Lamrin Tech Skills University Punjab, and why it is an independent initiative.",
 };
 
-export default function AboutPage() {
-  const settings = getSettings();
-  const stats = getPublicStats();
+export default async function AboutPage() {
+  const settings = await getSettings();
+  const stats = await getPublicStats();
 
   return (
     <>

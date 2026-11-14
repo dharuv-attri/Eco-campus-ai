@@ -68,14 +68,25 @@ const steps = [
 ];
 
 export default async function HomePage() {
-  const settings = getSettings();
-  const sections = getSections();
-  const stats = getPublicStats();
-  const recent = listPublicComplaints(6);
-  const issues = listMapIssues(80);
-  const locations = getVerifiedLocationsWithPins();
-  const articles = listPublishedArticles(3);
-  const announcements = listPublishedAnnouncements(2);
+  const [
+    settings,
+    sections,
+    stats,
+    recent,
+    issues,
+    locations,
+    articles,
+    announcements,
+  ] = await Promise.all([
+    getSettings(),
+    getSections(),
+    getPublicStats(),
+    listPublicComplaints(6),
+    listMapIssues(80),
+    getVerifiedLocationsWithPins(),
+    listPublishedArticles(3),
+    listPublishedAnnouncements(2),
+  ]);
   const recentAnnouncements = announcements;
   const contactDisabled = sections.find((section) => section.key === "contact")?.enabled === 0;
 

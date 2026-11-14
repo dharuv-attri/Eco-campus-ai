@@ -13,9 +13,9 @@ export const metadata: Metadata = { title: "Campus map" };
 
 export default async function AdminMapPage() {
   await requireRole(["admin", "super_admin"], "/admin/map");
-  const settings = getSettings();
-  const locations = listCampusLocations(false);
-  const issues = listMapIssues(300);
+  const settings = await getSettings();
+  const locations = await listCampusLocations(false);
+  const issues = await listMapIssues(300);
   const center = {
     lat: Number(settings.map_center_lat) || SITE.mapCenter.lat,
     lng: Number(settings.map_center_lng) || SITE.mapCenter.lng,

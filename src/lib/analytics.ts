@@ -2,8 +2,8 @@ import "server-only";
 import { all, one } from "@/lib/db";
 import type { SessionUser } from "@/types";
 
-export function getPublicStats() {
-  const row = one<{
+export async function getPublicStats() {
+  const row = await one<{
     total: number;
     resolved: number;
     pending: number;
@@ -45,21 +45,22 @@ export function getPublicStats() {
   };
 }
 
-export function getAdminStats() {
-  const complaints = one<{
-    total: number;
-    pending: number;
-    assigned: number;
-    in_progress: number;
-    resolved: number;
-    verified: number;
-    closed: number;
-    rejected: number;
-    reopened: number;
-    demo: number;
-    avg_resolution_hours: number | null;
-  }>(
-    `SELECT
+export async function getAdminStats() {
+  const [complaints, users] = await Promise.all([
+    one<{
+      total: number;
+      pending: number;
+      assigned: number;
+      in_progress: number;
+      resolved: number;
+      verified: number;
+      closed: number;
+      rejected: number;
+      reopened: number;
+      demo: number;
+      avg_resolution_hours: number | null;
+    }>(
+      `SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN status = 'submitted' OR status = 'under_review' THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status = 'assigned' THEN 1 ELSE 0 END) AS assigned,
@@ -70,16 +71,17 @@ export function getAdminStats() {
       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
       SUM(CASE WHEN status = 'reopened' THEN 1 ELSE 0 END) AS reopened,
       SUM(CASE WHEN is_demo = 1 THEN 1 ELSE 0 END) AS demo,
-      AVG(CASE WHEN resolved_at IS NOT NULL THEN (julianday(resolved_at) - julianday(created_at)) * 24 END) AS avg_resolution_hours
+      AVG(CASE WHEN resolved_at IS NOT NULL THEN EXTRACT(EPOCH FROM (resolved_at::timestamptz - created_at::timestamptz)) / 3600 END) AS avg_resolution_hours
      FROM complaints`,
-  );
-  const users = one<{ total: number; students: number; staff: number; pending_staff: number }>(
-    `SELECT COUNT(*) AS total,
+    ),
+    one<{ total: number; students: number; staff: number; pending_staff: number }>(
+      `SELECT COUNT(*) AS total,
       SUM(CASE WHEN role = 'student' AND status = 'active' THEN 1 ELSE 0 END) AS students,
       SUM(CASE WHEN role = 'staff' AND status = 'active' THEN 1 ELSE 0 END) AS staff,
       SUM(CASE WHEN role = 'staff' AND status = 'pending' THEN 1 ELSE 0 END) AS pending_staff
      FROM users`,
-  );
+    ),
+  ]);
   return {
     complaints: {
       total: complaints?.total ?? 0,
@@ -103,20 +105,20 @@ export function getAdminStats() {
   };
 }
 
-export function getStatusBreakdown() {
-  return all<{ status: string; count: number }>(
+export async function getStatusBreakdown() {
+  return await all<{ status: string; count: number }>(
     "SELECT status, COUNT(*) AS count FROM complaints GROUP BY status ORDER BY count DESC",
   );
 }
 
-export function getCategoryBreakdown() {
-  return all<{ category: string; count: number }>(
+export async function getCategoryBreakdown() {
+  return await all<{ category: string; count: number }>(
     "SELECT category, COUNT(*) AS count FROM complaints GROUP BY category ORDER BY count DESC LIMIT 12",
   );
 }
 
-export function getDepartmentBreakdown() {
-  return all<{ department: string; total: number; resolved: number }>(
+export async function getDepartmentBreakdown() {
+  return await all<{ department: string; total: number; resolved: number }>(
     `SELECT COALESCE(d.name, 'Unassigned') AS department,
        COUNT(c.id) AS total,
        SUM(CASE WHEN c.status IN ('resolved','verified','closed') THEN 1 ELSE 0 END) AS resolved
@@ -125,20 +127,20 @@ export function getDepartmentBreakdown() {
   );
 }
 
-export function getMonthlyTrend() {
-  const rows = all<{ month: string; count: number; resolved: number }>(
+export async function getMonthlyTrend() {
+  const rows = await all<{ month: string; count: number; resolved: number }>(
     `SELECT substr(created_at, 1, 7) AS month,
        COUNT(*) AS count,
        SUM(CASE WHEN status IN ('resolved','verified','closed') THEN 1 ELSE 0 END) AS resolved
      FROM complaints
-     WHERE created_at >= date('now', '-5 months', 'start of month')
+     WHERE created_at >= date_trunc('month', CURRENT_DATE - INTERVAL '5 months')::text
      GROUP BY month ORDER BY month ASC`,
   );
   return rows;
 }
 
-export function getStudentStats(userId: string) {
-  const row = one<{ total: number; open: number; resolved: number; pending: number }>(
+export async function getStudentStats(userId: string) {
+  const row = await one<{ total: number; open: number; resolved: number; pending: number }>(
     `SELECT COUNT(*) AS total,
       SUM(CASE WHEN status NOT IN ('closed','rejected','verified','archived') THEN 1 ELSE 0 END) AS open,
       SUM(CASE WHEN status IN ('verified','closed') THEN 1 ELSE 0 END) AS resolved,
@@ -146,11 +148,11 @@ export function getStudentStats(userId: string) {
      FROM complaints WHERE reporter_id = ?`,
     userId,
   );
-  const points = one<{ total: number }>(
+  const points = await one<{ total: number }>(
     "SELECT COALESCE(SUM(points),0) AS total FROM leaderboard_points WHERE user_id = ?",
     userId,
   );
-  const unread = one<{ count: number }>(
+  const unread = await one<{ count: number }>(
     "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
     userId,
   );
@@ -164,14 +166,14 @@ export function getStudentStats(userId: string) {
   };
 }
 
-export function getStaffStats(user: SessionUser) {
+export async function getStaffStats(user: SessionUser) {
   const params: string[] = [user.id];
   let deptClause = "";
   if (user.departmentId) {
     deptClause = " OR assigned_department_id = ?";
     params.push(user.departmentId);
   }
-  const row = one<{
+  const row = await one<{
     total: number;
     assigned: number;
     in_progress: number;
@@ -205,11 +207,14 @@ export interface LeaderboardRow {
   rank: number;
 }
 
-export function getLeaderboard(period: "week" | "month" | "all" = "all", limit = 10): LeaderboardRow[] {
+export async function getLeaderboard(
+  period: "week" | "month" | "all" = "all",
+  limit = 10,
+): Promise<LeaderboardRow[]> {
   let dateClause = "";
-  if (period === "week") dateClause = "AND lp.created_at >= datetime('now', '-7 days')";
-  if (period === "month") dateClause = "AND lp.created_at >= datetime('now', '-30 days')";
-  const rows = all<Omit<LeaderboardRow, "rank">>(
+  if (period === "week") dateClause = "AND lp.created_at::timestamptz >= NOW() - INTERVAL '7 days'";
+  if (period === "month") dateClause = "AND lp.created_at::timestamptz >= NOW() - INTERVAL '30 days'";
+  const rows = await all<Omit<LeaderboardRow, "rank">>(
     `SELECT lp.user_id, u.full_name, u.department, u.profile_image,
        SUM(lp.points) AS points,
        MAX(u.is_demo) AS is_demo
@@ -221,8 +226,8 @@ export function getLeaderboard(period: "week" | "month" | "all" = "all", limit =
   return rows.map((row, index) => ({ ...row, rank: index + 1, points: Number(row.points) }));
 }
 
-export function getDepartmentLeaderboard() {
-  return all<{ department: string; points: number; members: number }>(
+export async function getDepartmentLeaderboard() {
+  return await all<{ department: string; points: number; members: number }>(
     `SELECT COALESCE(u.department, 'Unassigned') AS department,
        SUM(lp.points) AS points,
        COUNT(DISTINCT lp.user_id) AS members
@@ -232,16 +237,32 @@ export function getDepartmentLeaderboard() {
   );
 }
 
-export function getUserPoints(userId: string) {
-  const row = one<{ total: number }>(
+export async function getUserPoints(userId: string) {
+  const row = await one<{ total: number }>(
     "SELECT COALESCE(SUM(points),0) AS total FROM leaderboard_points WHERE user_id = ?",
     userId,
   );
   return row?.total ?? 0;
 }
 
-export function getResolutionPerformance() {
-  return all<{
+/** Rank of one student without loading the entire leaderboard. */
+export async function getUserRank(userId: string) {
+  const row = await one<{ rank: number }>(
+    `SELECT rank FROM (
+       SELECT lp.user_id,
+              ROW_NUMBER() OVER (ORDER BY SUM(lp.points) DESC, MIN(u.full_name) ASC) AS rank
+       FROM leaderboard_points lp JOIN users u ON u.id = lp.user_id
+       WHERE u.role = 'student'
+       GROUP BY lp.user_id
+     ) ranked
+     WHERE ranked.user_id = ?`,
+    userId,
+  );
+  return row?.rank ?? null;
+}
+
+export async function getResolutionPerformance() {
+  return await all<{
     department: string;
     total: number;
     resolved: number;
@@ -250,7 +271,7 @@ export function getResolutionPerformance() {
     `SELECT COALESCE(d.name, 'Unassigned') AS department,
        COUNT(c.id) AS total,
        SUM(CASE WHEN c.status IN ('resolved','verified','closed') THEN 1 ELSE 0 END) AS resolved,
-       AVG(CASE WHEN c.resolved_at IS NOT NULL THEN (julianday(c.resolved_at) - julianday(c.created_at)) * 24 END) AS avg_hours
+       AVG(CASE WHEN c.resolved_at IS NOT NULL THEN EXTRACT(EPOCH FROM (c.resolved_at::timestamptz - c.created_at::timestamptz)) / 3600 END) AS avg_hours
      FROM complaints c LEFT JOIN departments d ON d.id = c.assigned_department_id
      GROUP BY c.assigned_department_id ORDER BY total DESC`,
   );

@@ -98,10 +98,10 @@ function findCategory(message: string) {
   return null;
 }
 
-function localReply(message: string, lang: "en" | "hi" | "hinglish", user: Awaited<ReturnType<typeof getSessionUser>>) {
+async function localReply(message: string, lang: "en" | "hi" | "hinglish", user: Awaited<ReturnType<typeof getSessionUser>>) {
   const category = findCategory(message);
   const lower = message.toLowerCase();
-  const settings = getSettings();
+  const settings = await getSettings();
 
   if (EMERGENCY_WORDS.some((word) => lower.includes(word))) {
     return `⚠️ Safety first. Please stay away from the area and do not touch electrical equipment, exposed wires, smoke sources or sewage.
@@ -118,7 +118,7 @@ The app cannot dispatch emergency services. Your safety and the safety of others
     if (!user) {
       return "To check a complaint status, please sign in first. For privacy, complaint details are only shown to the reporter, assigned staff and authorized administrators.";
     }
-    const complaint = getComplaintByCode(codeMatch[0].toUpperCase());
+    const complaint = await getComplaintByCode(codeMatch[0].toUpperCase());
     if (!complaint) {
       return `I could not find a complaint with the ID ${codeMatch[0].toUpperCase()} in the database. Please check the ID and try again. I will not guess a status.`;
     }
@@ -176,9 +176,9 @@ A report is not submitted until you see the confirmation and complaint ID.`;
   }
 
   if (category) {
-    const departmentId = suggestDepartmentId(category);
+    const departmentId = await suggestDepartmentId(category);
     const dept = departmentId
-      ? one<{ name: string; email: string | null }>("SELECT name, email FROM departments WHERE id = ?", departmentId)
+      ? await one<{ name: string; email: string | null }>("SELECT name, email FROM departments WHERE id = ?", departmentId)
       : null;
     return `This sounds like the “${categoryLabel(category)}” category.
 
@@ -215,7 +215,7 @@ export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
 
   const ip = clientIp(req);
-  const limit = rateLimit(`chat:${ip}`, 30, 10 * 60 * 1000);
+  const limit = await rateLimit(`chat:${ip}`, 30, 10 * 60 * 1000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many messages. Please wait a few minutes and try again." },
@@ -238,12 +238,13 @@ export async function POST(req: NextRequest) {
   const clean = sanitizeText(message).slice(0, 1200);
   const user = await getSessionUser();
   const lang = detectLanguage(clean);
-  const settings = getSettings();
+  const settings = await getSettings();
 
   const categories = PROBLEM_CATEGORIES.map((c) => `${c.label} (${c.value})`).join(", ");
-  const departments = all<{ name: string; handles_categories: string | null }>(
+  const departmentRows = await all<{ name: string; handles_categories: string | null }>(
     "SELECT name, handles_categories FROM departments ORDER BY name",
-  )
+  );
+  const departments = departmentRows
     .map((d) => `${d.name}: ${d.handles_categories || "[]"}`)
     .join("\n");
 
@@ -300,10 +301,10 @@ Rules:
     }
   }
 
-  if (!reply) reply = fallback();
+  if (!reply) reply = await fallback();
 
   const now = nowIso();
-  run(
+  await run(
     `INSERT INTO ai_chat_history (id, chat_session_id, user_id, role, content, language, mode, created_at)
      VALUES (?, ?, ?, 'user', ?, ?, ?, ?)`,
     randomUUID(),
@@ -314,7 +315,7 @@ Rules:
     mode,
     now,
   );
-  run(
+  await run(
     `INSERT INTO ai_chat_history (id, chat_session_id, user_id, role, content, language, mode, created_at)
      VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`,
     randomUUID(),

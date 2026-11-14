@@ -25,8 +25,8 @@ Verified from ltsu.ac.in on 12 Nov 2026:
 
 - Next.js 15 (App Router) + React 19 + TypeScript
 - Tailwind CSS 3.4, custom component system inspired by shadcn/ui
-- SQLite (Node built-in `node:sqlite`) for application data and user profiles
-- Supabase Auth for email/password, email OTP, Google OAuth, and cookie-backed sessions; server-side RBAC reads roles from the SQLite user profile
+- Supabase PostgreSQL for application data and user profiles; Supabase Auth for email/password, email OTP, Google OAuth, and cookie-backed sessions; server-side RBAC reads roles from the PostgreSQL user profile
+- Supabase Storage for uploaded images, with existing `/uploads/<name>` URLs redirected to the public bucket after migration
 - CSRF-origin checks, rate limiting, validated uploads
 - Leaflet + OpenStreetMap maps
 - Recharts analytics
@@ -51,13 +51,13 @@ Verified from ltsu.ac.in on 12 Nov 2026:
 - Students: own complaints only. Staff: assigned complaints or complaints assigned to their department, read/update only. Admins: platform management. Super admins: role management.
 - Supabase SSR manages HttpOnly session cookies and middleware refresh; logout revokes the current Supabase session.
 - Mutating APIs enforce same-origin, JSON/body validation (Zod), sanitised text, rate limits.
-- Uploads: max 5 MB, image MIME + magic-byte checks, random filenames, served through an authenticated-aware API route; no executable content.
+- Uploads: max 5 MB, image MIME + magic-byte checks, random filenames, stored in Supabase Storage; no executable content.
 - AI keys stay server-side; chatbot cannot read other users' records and never asserts a report exists unless the DB query confirms it.
 - Every privileged change writes to `admin_audit_logs`.
 
 ## 5. Environment variables
 
-Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or the legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY`) in `.env.local` for authentication. Enable Google under Supabase Auth providers and allow the app callback URL in Supabase Auth URL Configuration; include the local port in use (for example, `http://localhost:3001/**`). Use a Supabase email template containing `{{ .Token }}` for numeric OTP verification. Any valid email address may register; Staff access requires approval, and Admin roles can only be assigned by an existing super administrator. Existing SQLite profiles keep their roles, but existing accounts must also exist in Supabase Auth with the same verified email. AI and non-auth email integrations remain optional.
+Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or the legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY`), `SUPABASE_DB_URL`, and the server-only `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. Run `npm run db:migrate` to apply the additive schema and copy SQLite rows and uploads without replacing existing target data. Set `SUPABASE_STORAGE_READY=true` only after verifying the bucket. Enable Google under Supabase Auth providers and allow the app callback URL in Supabase Auth URL Configuration; include the local port in use (for example, `http://localhost:3001/**`). Use a Supabase email template containing `{{ .Token }}` for numeric OTP verification. Any valid email address may register; Staff access requires approval, and Admin roles can only be assigned by an existing super administrator. Migrated profile role values are copied unchanged; existing accounts must also exist in Supabase Auth with the same verified email. AI and non-auth email integrations remain optional.
 
 ## 6. Verification checklist
 

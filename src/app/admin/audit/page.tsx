@@ -44,7 +44,7 @@ export default async function AdminAuditPage({
   const like = `%${q}%`;
   const searchArgs = q ? [like, like, like, like, like, like] : [];
 
-  const rows = all<AuditRow>(
+  const rows = await all<AuditRow>(
     `SELECT id, actor_id, actor_name, action, entity_type, entity_id, details, ip, created_at
      FROM admin_audit_logs
      ${where}
@@ -54,8 +54,8 @@ export default async function AdminAuditPage({
     PAGE_SIZE,
     offset,
   );
-  const total = one<{ count: number }>(`SELECT COUNT(*) AS count FROM admin_audit_logs ${where}`, ...searchArgs)?.count ?? 0;
-  const totals = one<{ total: number; last24: number; actors: number }>(
+  const total = (await one<{ count: number }>(`SELECT COUNT(*) AS count FROM admin_audit_logs ${where}`, ...searchArgs))?.count ?? 0;
+  const totals = await one<{ total: number; last24: number; actors: number }>(
     `SELECT
        COUNT(*) AS total,
        SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last24,

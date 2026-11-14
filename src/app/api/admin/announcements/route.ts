@@ -7,21 +7,22 @@ import { all, one, run } from "@/lib/db";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { logAudit } from "@/lib/audit";
 import { nowIso, sanitizeText, slugify } from "@/lib/utils";
+import { revalidatePublicContent } from "@/lib/revalidate";
 
 export async function GET() {
   const auth = await authorizeApi(["admin", "super_admin"]);
   if (auth.response) return auth.response;
   return NextResponse.json({
     ok: true,
-    announcements: all("SELECT * FROM announcements ORDER BY created_at DESC"),
+    announcements: await all("SELECT * FROM announcements ORDER BY created_at DESC"),
   });
 }
 
-function uniqueSlug(title: string, excludeId?: string) {
+async function uniqueSlug(title: string, excludeId?: string) {
   const base = slugify(title) || "announcement";
   let slug = base;
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const existing = one<{ id: string }>(
+    const existing = await one<{ id: string }>(
       "SELECT id FROM announcements WHERE slug = ? AND id != ?",
       slug,
       excludeId ?? "",
@@ -51,9 +52,9 @@ export async function POST(req: NextRequest) {
   const content = sanitizeText(input.content);
 
   if (input.id) {
-    const existing = one<{ id: string }>("SELECT id FROM announcements WHERE id = ?", input.id);
+    const existing = await one<{ id: string }>("SELECT id FROM announcements WHERE id = ?", input.id);
     if (!existing) return apiError("Announcement not found.", 404);
-    run(
+    await run(
       `UPDATE announcements SET title = ?, excerpt = ?, content = ?, category = ?, published = ?, updated_at = ?
        WHERE id = ?`,
       title,
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
       nowIso(),
       input.id,
     );
-    logAudit({
+    await logAudit({
       actor: auth.user,
       action: "Updated an announcement",
       entityType: "announcement",
@@ -72,16 +73,17 @@ export async function POST(req: NextRequest) {
       details: title,
       ip: clientIp(req),
     });
+    revalidatePublicContent();
     return NextResponse.json({ ok: true, id: input.id });
   }
 
   const id = randomUUID();
-  run(
+  await run(
     `INSERT INTO announcements (id, title, slug, excerpt, content, category, published, is_demo, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     id,
     title,
-    uniqueSlug(title),
+    await uniqueSlug(title),
     sanitizeText(input.excerpt) || null,
     content,
     sanitizeText(input.category) || "General",
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
     nowIso(),
     nowIso(),
   );
-  logAudit({
+  await logAudit({
     actor: auth.user,
     action: "Created an announcement",
     entityType: "announcement",
@@ -98,6 +100,7 @@ export async function POST(req: NextRequest) {
     details: title,
     ip: clientIp(req),
   });
+  revalidatePublicContent();
   return NextResponse.json({ ok: true, id }, { status: 201 });
 }
 
@@ -116,13 +119,14 @@ export async function DELETE(req: NextRequest) {
   }
   const parsed = deleteSchema.safeParse(json);
   if (!parsed.success) return apiError("Announcement ID is required.");
-  run("DELETE FROM announcements WHERE id = ?", parsed.data.id);
-  logAudit({
+  await run("DELETE FROM announcements WHERE id = ?", parsed.data.id);
+  await logAudit({
     actor: auth.user,
     action: "Deleted an announcement",
     entityType: "announcement",
     entityId: parsed.data.id,
     ip: clientIp(req),
   });
+  revalidatePublicContent();
   return NextResponse.json({ ok: true });
 }

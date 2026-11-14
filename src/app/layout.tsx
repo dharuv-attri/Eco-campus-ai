@@ -11,7 +11,7 @@ import { safeColor, safeImageUrl } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const settings = getSettings();
+  const settings = await getSettings();
   const siteName = settings.site_name || "EcoCampus AI";
   const description =
     settings.hero_description ||
@@ -55,8 +55,8 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const settings = getSettings();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const settings = await getSettings();
   const brand = safeColor(settings.primary_color, "#14532D");
   const accent = safeColor(settings.secondary_color, "#10B981");
   const background = safeColor(settings.background_color, "#F6FAF7");

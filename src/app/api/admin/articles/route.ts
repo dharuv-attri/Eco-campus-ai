@@ -7,21 +7,22 @@ import { all, one, run } from "@/lib/db";
 import { authorizeApi, apiError, clientIp, enforceSameOrigin } from "@/lib/http";
 import { logAudit } from "@/lib/audit";
 import { nowIso, sanitizeText, slugify } from "@/lib/utils";
+import { revalidatePublicContent } from "@/lib/revalidate";
 
 export async function GET() {
   const auth = await authorizeApi(["admin", "super_admin"]);
   if (auth.response) return auth.response;
   return NextResponse.json({
     ok: true,
-    articles: all("SELECT * FROM environmental_articles ORDER BY created_at DESC"),
+    articles: await all("SELECT * FROM environmental_articles ORDER BY created_at DESC"),
   });
 }
 
-function uniqueSlug(title: string, excludeId?: string) {
+async function uniqueSlug(title: string, excludeId?: string) {
   const base = slugify(title) || "article";
   let slug = base;
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const existing = one<{ id: string }>(
+    const existing = await one<{ id: string }>(
       "SELECT id FROM environmental_articles WHERE slug = ? AND id != ?",
       slug,
       excludeId ?? "",
@@ -56,9 +57,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (input.id) {
-    const existing = one<{ id: string }>("SELECT id FROM environmental_articles WHERE id = ?", input.id);
+    const existing = await one<{ id: string }>("SELECT id FROM environmental_articles WHERE id = ?", input.id);
     if (!existing) return apiError("Article not found.", 404);
-    run(
+    await run(
       `UPDATE environmental_articles SET title = ?, excerpt = ?, content = ?, category = ?,
          read_minutes = ?, image_url = ?, published = ?, updated_at = ? WHERE id = ?`,
       title,
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
       nowIso(),
       input.id,
     );
-    logAudit({
+    await logAudit({
       actor: auth.user,
       action: "Updated an awareness article",
       entityType: "article",
@@ -79,17 +80,18 @@ export async function POST(req: NextRequest) {
       details: title,
       ip: clientIp(req),
     });
+    revalidatePublicContent();
     return NextResponse.json({ ok: true, id: input.id });
   }
 
   const id = randomUUID();
-  run(
+  await run(
     `INSERT INTO environmental_articles
       (id, title, slug, excerpt, content, category, read_minutes, image_url, published, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     title,
-    uniqueSlug(title),
+    await uniqueSlug(title),
     sanitizeText(input.excerpt) || null,
     content,
     sanitizeText(input.category) || "Awareness",
@@ -99,7 +101,7 @@ export async function POST(req: NextRequest) {
     nowIso(),
     nowIso(),
   );
-  logAudit({
+  await logAudit({
     actor: auth.user,
     action: "Created an awareness article",
     entityType: "article",
@@ -107,6 +109,7 @@ export async function POST(req: NextRequest) {
     details: title,
     ip: clientIp(req),
   });
+  revalidatePublicContent();
   return NextResponse.json({ ok: true, id }, { status: 201 });
 }
 
@@ -125,13 +128,14 @@ export async function DELETE(req: NextRequest) {
   }
   const parsed = deleteSchema.safeParse(json);
   if (!parsed.success) return apiError("Article ID is required.");
-  run("DELETE FROM environmental_articles WHERE id = ?", parsed.data.id);
-  logAudit({
+  await run("DELETE FROM environmental_articles WHERE id = ?", parsed.data.id);
+  await logAudit({
     actor: auth.user,
     action: "Deleted an awareness article",
     entityType: "article",
     entityId: parsed.data.id,
     ip: clientIp(req),
   });
+  revalidatePublicContent();
   return NextResponse.json({ ok: true });
 }

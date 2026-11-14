@@ -19,10 +19,10 @@ export default async function StudentLeaderboardPage({
   const raw = typeof params.period === "string" ? params.period : "all";
   const period: "week" | "month" | "all" = raw === "week" || raw === "month" ? raw : "all";
 
-  const rows = getLeaderboard(period, 50);
-  const departments = getDepartmentLeaderboard();
-  const myRow = getLeaderboard("all", 500).find((row) => row.user_id === user.id);
-  const points = getUserPoints(user.id);
+  const rows = await getLeaderboard(period, 50);
+  const departments = await getDepartmentLeaderboard();
+  const myRow = (await getLeaderboard("all", 500)).find((row) => row.user_id === user.id);
+  const points = await getUserPoints(user.id);
   const myDepartment = departments.find((row) => row.department === (user.department || "Unassigned"));
 
   return (

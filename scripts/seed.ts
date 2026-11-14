@@ -1,7 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getDb, one, run, all } from "../src/lib/db";
+import { one, run, all } from "../src/lib/db";
+import { loadEnvConfig } from "@next/env";
 import {
   AWARENESS_ARTICLES,
   DEFAULT_SECTIONS,
@@ -9,6 +8,8 @@ import {
   DEPARTMENT_SEEDS,
   QUIZ_SEED,
 } from "../src/lib/constants";
+
+loadEnvConfig(process.cwd());
 
 const now = new Date();
 const iso = now.toISOString();
@@ -20,20 +21,17 @@ function daysAgo(days: number, hour = 10) {
   return d.toISOString();
 }
 
-function ensureDir(file: string) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-}
-
 async function seed() {
-  ensureDir(process.env.DATABASE_PATH || "data/ecocampus.db");
-  const db = getDb();
+  if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
+    throw new Error("Set SUPABASE_DB_URL or DATABASE_URL before seeding.");
+  }
   console.log("Seeding EcoCampus AI database…");
 
   const departmentIds = new Map<string, string>();
   for (const dept of DEPARTMENT_SEEDS) {
     const id = `dept-${dept.slug}`;
     departmentIds.set(dept.slug, id);
-    run(
+    await run(
       `INSERT OR IGNORE INTO departments (id, name, slug, description, handles_categories, email, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
@@ -48,7 +46,7 @@ async function seed() {
   }
 
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    run(
+    await run(
       "INSERT OR IGNORE INTO website_settings (key, value, updated_at) VALUES (?, ?, ?)",
       key,
       value,
@@ -56,7 +54,7 @@ async function seed() {
     );
   }
   for (const section of DEFAULT_SECTIONS) {
-    run(
+    await run(
       `INSERT OR IGNORE INTO website_sections (key, label, enabled, sort_order, updated_at)
        VALUES (?, ?, ?, ?, ?)`,
       section.key,
@@ -176,9 +174,9 @@ async function seed() {
   ];
 
   for (const user of users) {
-    const existing = one<{ id: string }>("SELECT id FROM users WHERE email = ?", user.email);
+    const existing = await one<{ id: string }>("SELECT id FROM users WHERE email = ?", user.email);
     if (existing) continue;
-    run(
+    await run(
       `INSERT INTO users (id, email, password_hash, role, full_name, student_id, course, department,
         department_id, year_semester, employee_id, designation, email_verified, status, provider, is_demo, created_at, updated_at)
        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'email', ?, ?, ?)`,
@@ -225,7 +223,7 @@ async function seed() {
   ];
 
   for (const loc of locations) {
-    run(
+    await run(
       `INSERT OR IGNORE INTO campus_locations
        (id, name, category, building, floor, description, lat, lng, verified, qr_slug, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -245,7 +243,7 @@ async function seed() {
     );
   }
 
-  const existingComplaints = one<{ count: number }>("SELECT COUNT(*) AS count FROM complaints");
+  const existingComplaints = await one<{ count: number }>("SELECT COUNT(*) AS count FROM complaints");
   if ((existingComplaints?.count ?? 0) === 0) {
     const demo = [
       {
@@ -474,7 +472,7 @@ async function seed() {
     const lat = 30.991586;
     const lng = 76.477097;
     for (const item of demo) {
-      run(
+      await run(
         `INSERT INTO complaints
          (id, complaint_code, reporter_id, anonymous, title, category, description, priority, status,
           location_id, building, floor, room_number, specific_location, lat, lng, assigned_department_id,
@@ -548,7 +546,7 @@ async function seed() {
       ["cmp-demo-010", "resolved", "verified", "Work verified on site.", "usr-demo-admin", daysAgo(16)],
     ];
     for (const h of histories) {
-      run(
+      await run(
         `INSERT INTO complaint_status_history (id, complaint_id, from_status, to_status, note, changed_by, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         randomUUID(),
@@ -562,7 +560,7 @@ async function seed() {
     }
 
     for (const item of demo.filter((d) => d.department)) {
-      run(
+      await run(
         `INSERT INTO complaint_assignments (id, complaint_id, department_id, staff_id, assigned_by, note, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         randomUUID(),
@@ -575,7 +573,7 @@ async function seed() {
       );
     }
 
-    run(
+    await run(
       `INSERT INTO staff_updates (id, complaint_id, staff_id, update_type, message, image_url, created_at)
        VALUES (?, ?, ?, 'progress', ?, NULL, ?)`,
       randomUUID(),
@@ -584,7 +582,7 @@ async function seed() {
       "Housekeeping team has emptied the bin and is cleaning the surrounding paved area.",
       daysAgo(2),
     );
-    run(
+    await run(
       `INSERT INTO staff_updates (id, complaint_id, staff_id, update_type, message, image_url, created_at)
        VALUES (?, ?, ?, 'resolution', ?, NULL, ?)`,
       randomUUID(),
@@ -594,7 +592,7 @@ async function seed() {
       daysAgo(15),
     );
 
-    run(
+    await run(
       `INSERT INTO complaint_feedback (id, complaint_id, user_id, rating, comment, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       randomUUID(),
@@ -604,7 +602,7 @@ async function seed() {
       "The repair was quick and the washroom is dry now. Thank you!",
       daysAgo(13),
     );
-    run(
+    await run(
       `INSERT INTO complaint_feedback (id, complaint_id, user_id, rating, comment, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       randomUUID(),
@@ -624,7 +622,7 @@ async function seed() {
       ["usr-demo-student-3", 15, "Completed Waste Segregation quiz", null, "waste-wise"],
     ] as const;
     for (const p of pointRows) {
-      run(
+      await run(
         `INSERT OR IGNORE INTO leaderboard_points (id, user_id, points, reason, complaint_id, quiz_id, is_demo, created_at)
          VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
         randomUUID(),
@@ -636,7 +634,7 @@ async function seed() {
         daysAgo(5),
       );
     }
-    run(
+    await run(
       `INSERT OR IGNORE INTO quiz_attempts (id, quiz_id, user_id, score, total, points_awarded, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       randomUUID(),
@@ -656,7 +654,7 @@ async function seed() {
       ["usr-demo-admin", "cmp-demo-006", "report", "New report requires review", "ECO-2026-00006 was submitted from the parking area.", 0],
     ] as const;
     for (const n of notifications) {
-      run(
+      await run(
         `INSERT INTO notifications (id, user_id, complaint_id, type, title, message, is_read, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         randomUUID(),
@@ -706,7 +704,7 @@ async function seed() {
     },
   ];
   for (const a of announcements) {
-    run(
+    await run(
       `INSERT OR IGNORE INTO announcements (id, title, slug, excerpt, content, category, published, is_demo, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'usr-demo-admin', ?, ?)`,
       a.id,
@@ -722,7 +720,7 @@ async function seed() {
   }
 
   for (const article of AWARENESS_ARTICLES) {
-    run(
+    await run(
       `INSERT OR IGNORE INTO environmental_articles
        (id, title, slug, excerpt, content, category, read_minutes, image_url, published, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)`,
@@ -738,7 +736,7 @@ async function seed() {
     );
   }
 
-  run(
+  await run(
     `INSERT OR IGNORE INTO green_activities (id, title, description, points, activity_date, verified, is_demo, created_by, created_at)
      VALUES (?, ?, ?, ?, ?, 1, 1, 'usr-demo-admin', ?)`,
     "act-demo-1",
@@ -751,7 +749,6 @@ async function seed() {
 
   console.log("Seed complete.");
   console.log("Seeded demo profiles are not authentication accounts. Create the first Admin through /admin-setup.");
-  db.close();
 }
 
 seed().catch((error) => {

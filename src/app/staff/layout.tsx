@@ -7,10 +7,14 @@ export const dynamic = "force-dynamic";
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const user = await requireRole(["staff"], "/staff/dashboard");
-  const settings = getSettings();
-  const unread =
-    one<{ count: number }>("SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0", user.id)
-      ?.count ?? 0;
+  const [settings, unreadRow] = await Promise.all([
+    getSettings(),
+    one<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
+      user.id,
+    ),
+  ]);
+  const unread = unreadRow?.count ?? 0;
 
   return (
     <PortalShell

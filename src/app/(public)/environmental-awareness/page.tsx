@@ -21,7 +21,7 @@ export default async function AwarenessPage({
 }) {
   const params = await searchParams;
   const selected = typeof params.category === "string" ? params.category : "All";
-  const articles = listPublishedArticles(50);
+  const articles = await listPublishedArticles(50);
   const visible = selected === "All" ? articles : articles.filter((article) => article.category === selected);
 
   return (

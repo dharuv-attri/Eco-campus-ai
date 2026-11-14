@@ -7,7 +7,7 @@ import { createSupabaseClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Invalid origin." }, { status: 403 });
-  if (!rateLimit(`verify:${clientIp(req)}`, 15, 60 * 60 * 1000).allowed) {
+  if (!(await rateLimit(`verify:${clientIp(req)}`, 15, 60 * 60 * 1000)).allowed) {
     return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
   }
   let json: { token?: string };
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const profile = one<{ id: string; email: string; status: string }>(
+  const profile = await one<{ id: string; email: string; status: string }>(
     "SELECT id, email, status FROM users WHERE lower(email) = ?",
     data.user.email.toLowerCase(),
   );
@@ -48,13 +48,13 @@ export async function POST(req: NextRequest) {
     await supabase.auth.signOut({ scope: "local" });
     return NextResponse.json({ error: "Your account has no EcoCampus profile. Contact an administrator." }, { status: 403 });
   }
-  run("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?", nowIso(), profile.id);
+  await run("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?", nowIso(), profile.id);
   const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
   if (signOutError) {
     console.error("Email verified but Supabase sign-out failed:", signOutError.message);
     return NextResponse.json({ error: "Email verified, but sign-out failed. Please sign out before continuing." }, { status: 502 });
   }
-  logAudit({
+  await logAudit({
     action: "Email verified",
     entityType: "user",
     entityId: profile.id,

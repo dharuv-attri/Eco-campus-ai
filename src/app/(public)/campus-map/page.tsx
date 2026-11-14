@@ -15,10 +15,10 @@ export const metadata: Metadata = {
     "Explore verified campus locations and public environmental issue markers at Lamrin Tech Skills University Punjab.",
 };
 
-export default function CampusMapPage() {
-  const settings = getSettings();
-  const locations = listCampusLocations(false);
-  const issues = listMapIssues(300);
+export default async function CampusMapPage() {
+  const settings = await getSettings();
+  const locations = await listCampusLocations(false);
+  const issues = await listMapIssues(300);
   const center = {
     lat: Number(settings.map_center_lat) || SITE.mapCenter.lat,
     lng: Number(settings.map_center_lng) || SITE.mapCenter.lng,
