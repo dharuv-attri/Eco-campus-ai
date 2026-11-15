@@ -86,27 +86,21 @@ function getPool() {
 
   const pool = new Pool({
     connectionString,
-    // The Supabase Supavisor pooler runs in session mode and refuses new
-    // clients beyond its pool_size (15 per user) with a fatal EMAXCONNSESSION
-    // error. The app must leave headroom for maintenance scripts, migrations
-    // and any second deployment, otherwise server components fail mid-render
-    // and pages fall back to a nearly empty client-only render.
-    max: 8,
-    // Keeping sockets warm avoids a fresh TCP + TLS handshake to the Supabase
-    // pooler on nearly every request, which was the main source of 1–3 s
-    // stalls after short idle periods.
+
+    // Keep the application-side pool small for Vercel serverless instances.
+    max: 1,
+
     keepAlive: true,
     keepAliveInitialDelayMillis: 5_000,
-    // Release idle sessions faster: in session mode every pooled client holds
-    // a real PostgreSQL session and counts against the pooler's client cap.
-    idleTimeoutMillis: 30_000,
+
+    // Release idle connections sooner.
+    idleTimeoutMillis: 10_000,
+
     connectionTimeoutMillis: 10_000,
     application_name: "ecocampus-ai",
     ssl: sslConfig,
   });
 
-  // An idle client can be terminated by the pooler. Without a listener this
-  // emits an unhandled error and can take the whole process down.
   pool.on("error", (error) => {
     console.error("Idle PostgreSQL client error:", error);
   });
@@ -209,15 +203,13 @@ async function query<
   try {
     return await client.query<T>(statement, params);
   } catch (error) {
-    // Supavisor refuses a new client when its session-mode pool is exhausted
-    // (fatal EMAXCONNSESSION). This is transient: other requests release
-    // clients within milliseconds, so a short retry keeps pages rendering
-    // instead of failing mid-render. Real SQL errors are never retried.
     const message = error instanceof Error ? error.message : "";
+
     if (/EMAXCONNSESSION|max clients reached/i.test(message)) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return client.query<T>(statement, params);
     }
+
     throw error;
   }
 }
